@@ -1,5 +1,5 @@
 // src/index.ts
-import { createApp } from "./app";
+import { createApp } from "./app.js";
 
 const app = createApp();
 export default app;

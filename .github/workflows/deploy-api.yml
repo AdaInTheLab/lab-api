@@ -1,0 +1,68 @@
+name: Deploy Lab API
+
+on:
+  push:
+    branches: [ "main" ]
+
+concurrency:
+  group: deploy-lab-api
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      # 1️⃣ Checkout
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      # 2️⃣ Node setup
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: "npm"
+
+      # 3️⃣ Install deps
+      - name: Install dependencies
+        run: npm ci
+
+      # 4️⃣ Test
+      - name: Run tests
+        run: npm test
+
+      # 5️⃣ Build
+      - name: Build API
+        run: npm run build
+
+      # 6️⃣ Sanity check OpenAPI spec
+      - name: Verify OpenAPI spec
+        run: test -f openapi/openapi.json
+
+      # 7️⃣ Deploy files to DreamHost
+      - name: Deploy via SFTP
+        uses: wlixcc/SFTP-Deploy-Action@v1.2.4
+        with:
+          server: ${{ secrets.DREAMHOST_SERVER }}
+          username: ${{ secrets.DREAMHOST_USERNAME }}
+          password: ${{ secrets.DREAMHOST_PASSWORD }}
+          port: 22
+          local_path: "./"
+          remote_path: "/home/humanpatternlab/lab-api"
+          sftp_only: true
+          delete_remote_files: false
+
+      # 8️⃣ Install prod deps + restart PM2
+      - name: Restart API with PM2
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.DREAMHOST_SERVER }}
+          username: ${{ secrets.DREAMHOST_USERNAME }}
+          password: ${{ secrets.DREAMHOST_PASSWORD }}
+          port: 22
+          script: |
+            cd /home/humanpatternlab/lab-api
+            npm ci --omit=dev
+            pm2 restart lab-api
+            pm2 save

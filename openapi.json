@@ -1,0 +1,245 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Human Pattern Lab API",
+    "version": "0.1.0",
+    "description": "Public Lab Notes endpoints + admin surfaces."
+  },
+  "servers": [
+    { "url": "/" }
+  ],
+  "tags": [
+    { "name": "System" },
+    { "name": "Lab Notes" },
+    { "name": "Admin" }
+  ],
+  "paths": {
+    "/": {
+      "get": {
+        "tags": ["System"],
+        "summary": "Root",
+        "description": "Basic root endpoint (often returns a status or landing payload).",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/OkResponse" },
+                "examples": {
+                  "ok": { "value": { "ok": true } }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/health": {
+      "get": {
+        "tags": ["System"],
+        "summary": "Health check",
+        "responses": {
+          "200": {
+            "description": "Service is healthy",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/HealthResponse" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/lab-notes": {
+      "get": {
+        "tags": ["Lab Notes"],
+        "summary": "List lab notes (summary)",
+        "description": "Returns a lightweight list (no full content).",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "q",
+            "schema": { "type": "string" },
+            "description": "Optional search query"
+          },
+          {
+            "in": "query",
+            "name": "tag",
+            "schema": { "type": "string" },
+            "description": "Optional tag filter"
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "schema": { "type": "integer", "minimum": 1, "maximum": 100, "default": 50 }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List of lab note summaries",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": { "$ref": "#/components/schemas/LabNoteSummary" }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/lab-notes/{slug}": {
+      "get": {
+        "tags": ["Lab Notes"],
+        "summary": "Get lab note by slug (full detail)",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "slug",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Lab note detail",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/LabNoteDetail" }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ErrorResponse" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/admin": {
+      "get": {
+        "tags": ["Admin"],
+        "summary": "Admin root",
+        "security": [{ "AdminAuth": [] }],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/OkResponse" }
+              }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" }
+        }
+      }
+    },
+    "/admin/notes": {
+      "get": {
+        "tags": ["Admin"],
+        "summary": "Admin list notes (may include draft/unpublished)",
+        "security": [{ "AdminAuth": [] }],
+        "responses": {
+          "200": {
+            "description": "List of notes (admin view)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": { "$ref": "#/components/schemas/LabNoteDetail" }
+                }
+              }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "AdminAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT"
+      }
+    },
+    "responses": {
+      "Unauthorized": {
+        "description": "Unauthorized",
+        "content": {
+          "application/json": {
+            "schema": { "$ref": "#/components/schemas/ErrorResponse" },
+            "examples": {
+              "unauthorized": { "value": { "error": "unauthorized" } }
+            }
+          }
+        }
+      }
+    },
+    "schemas": {
+      "OkResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": { "ok": { "type": "boolean" } },
+        "required": ["ok"]
+      },
+      "HealthResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "ok": { "type": "boolean" },
+          "uptimeSec": { "type": "number" },
+          "version": { "type": "string" }
+        },
+        "required": ["ok"]
+      },
+      "ErrorResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "error": { "type": "string" },
+          "message": { "type": "string" }
+        },
+        "required": ["error"]
+      },
+      "LabNoteSummary": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "slug": { "type": "string" },
+          "title": { "type": "string" },
+          "excerpt": { "type": "string" },
+          "tags": { "type": "array", "items": { "type": "string" } },
+          "updatedAt": { "type": "string", "format": "date-time" }
+        },
+        "required": ["slug", "title"]
+      },
+      "LabNoteDetail": {
+        "allOf": [
+          { "$ref": "#/components/schemas/LabNoteSummary" },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "content": {
+                "type": "string",
+                "description": "Full content body (may be Markdown or HTML)"
+              },
+              "contentType": {
+                "type": "string",
+                "enum": ["markdown", "html"]
+              }
+            },
+            "required": ["content", "contentType"]
+          }
+        ]
+      }
+    }
+  }
+}
