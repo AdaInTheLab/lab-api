@@ -21,7 +21,8 @@ const publish = new Command('publish')
             const client = new LabClient(options.url, options.token);
 
             const payload = {
-                ...metadata,
+                title: metadata.title,
+                slug: metadata.slug,
                 content,
                 tags: metadata.tags || [],
                 artifacts: metadata.artifacts || []

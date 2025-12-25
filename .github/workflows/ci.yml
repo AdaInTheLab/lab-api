@@ -1,0 +1,40 @@
+name: Carmel Judgment Protocol 😼🧪
+
+on:
+  pull_request:
+    branches: ["main"]
+  push:
+    branches: ["main"]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  judgment:
+    name: Carmel Reviews Your Work
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 😼 Checkout for Inspection
+        uses: actions/checkout@v4
+
+      - name: 🧶 Set Up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: "npm"
+
+      - name: 🐾 Install Dependencies
+        run: npm ci
+
+      - name: 🔍 Run Test Suite
+        run: npm test
+
+      - name: 🟢 Carmel Verdict
+        if: success()
+        run: echo "😼✨ Acceptable. You may proceed."
+
+      - name: 🔴 Carmel Displeased
+        if: failure()
+        run: echo "😾❌ Unacceptable. Fix it."
