@@ -1,0 +1,27 @@
+/.env
+/package-lock.json
+/.idea/
+/dist/
+/node_modules/
+
+# DB file (your actual data)
+data/lab.db
+
+# Logs and temp files
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Build artifacts
+build/
+.vite/
+
+# Editor backups
+*.swp
+*.swo
+
+/lab_notes.sqlite
+/cli/node_modules/
+/cli/package-lock.json
+/scripts/seed-test-data.ts

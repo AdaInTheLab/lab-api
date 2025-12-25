@@ -1,0 +1,13 @@
+{
+  "name": "lab-cli",
+  "version": "0.1.0",
+  "type": "module",
+  "bin": {
+    "lab": "./lab.ts"
+  },
+  "dependencies": {
+    "commander": "^11.0.0",
+    "gray-matter": "^4.0.3",
+    "node-fetch": "^3.3.2"
+  }
+}
