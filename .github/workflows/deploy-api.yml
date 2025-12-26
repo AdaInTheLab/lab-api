@@ -93,35 +93,24 @@ jobs:
           ls -la deploy_bundle
           find deploy_bundle -maxdepth 3 -type f | head -n 50
 
-      - name: Verify remote path is writable (pre-SFTP)
-        uses: appleboy/ssh-action@v1.0.3
-        with:
-          host: ${{ secrets.SFTP_HOST }}
-          username: ${{ secrets.SFTP_USER }}
-          key: ${{ secrets.SSH_PRIVATE_KEY }}
-          port: ${{ secrets.SSH_PORT }}
-          script_stop: true
-          script: |
-            set -e
-            echo "User: $(whoami)"
-            echo "Path: ${{ secrets.SFTP_PATH }}"
-            ls -ld "${{ secrets.SFTP_PATH }}"
-            cd "${{ secrets.SFTP_PATH }}"
-            touch .gha_write_test
-            rm .gha_write_test
-            echo "✅ Writable"
-
-      - name: Deploy via SFTP
-        uses: wlixcc/SFTP-Deploy-Action@v1.2.4
-        with:
-          server: ${{ secrets.SFTP_HOST }}
-          username: ${{ secrets.SFTP_USER }}
-          password: ${{ secrets.SFTP_PASS }}
-          port: ${{ secrets.SSH_PORT }}
-          local_path: "./deploy_bundle/"
-          remote_path: "${{ secrets.SFTP_PATH }}/"
-          sftp_only: true
-          delete_remote_files: false
+      - name: Upload deploy bundle via scp (key auth)
+        shell: bash
+        run: |
+          set -euo pipefail
+      
+          PORT="${{ secrets.SSH_PORT }}"
+          PORT="${PORT:-22}"
+      
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+      
+          ssh-keyscan -p "$PORT" -H "${{ secrets.SFTP_HOST }}" >> ~/.ssh/known_hosts
+      
+          # Upload contents of deploy_bundle into the remote deploy dir
+          scp -P "$PORT" -r deploy_bundle/* \
+            "${{ secrets.SFTP_USER }}@${{ secrets.SFTP_HOST }}:${{ secrets.SFTP_PATH }}/"
 
       - name: Restart API with PM2
         uses: appleboy/ssh-action@v1.0.3
