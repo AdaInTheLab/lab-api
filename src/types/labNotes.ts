@@ -22,7 +22,9 @@ export interface TagResult {
 
 // What the frontend expects (your canonical UI contract)
 export interface LabNoteView {
-    id: string; // slug-style id for routing
+    id: string;     // uuid/internal
+    slug: string;   // public URL identity
+
     title: string;
     subtitle?: string;
     summary?: string;
