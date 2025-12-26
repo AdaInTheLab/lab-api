@@ -54,6 +54,20 @@ jobs:
           # If you use a PM2 ecosystem file, include it:
           cp ecosystem.config.js deploy_bundle/
 
+      - name: Confirm remote path exists + permissions
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SFTP_HOST }}
+          username: ${{ secrets.SFTP_USER }}
+          password: ${{ secrets.SFTP_PASS }}
+          port: 22
+          script: |
+            whoami
+            pwd
+            ls -ld /home /home/humanpatternlab /home/humanpatternlab/lab-api || true
+            mkdir -p /home/humanpatternlab/lab-api
+            ls -la /home/humanpatternlab/lab-api
+      
       - name: Deploy via SFTP
         uses: wlixcc/SFTP-Deploy-Action@v1.2.4
         with:
