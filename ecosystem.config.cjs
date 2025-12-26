@@ -40,7 +40,7 @@ module.exports = {
             env_production: {
                 NODE_ENV: "production",
                 PORT: 8001,
-                DB_PATH: "/home/humanpatternlab/lab-api/data/lab.db",
+                DB_PATH: "/home/humanpatternlab/lab-api/data/thehumanpatternlab.db",
 
                 // Auth-related envs (set real values on the server)
                 GITHUB_CLIENT_ID: "REPLACE_ME",
