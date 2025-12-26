@@ -2,9 +2,9 @@ import request from "supertest";
 import app from "../src/index.js";
 
 describe("Lab Note detail", () => {
-    it("GET /api/lab-notes/:slug returns a note with contentHtml", async () => {
+    it("GET /lab-notes/:slug returns a note with contentHtml", async () => {
         // You seed "api-marker-note" in the API — perfect stable fixture
-        const res = await request(app).get("/api/lab-notes/api-marker-note");
+        const res = await request(app).get("/lab-notes/api-marker-note");
         expect(res.status).toBe(200);
 
         expect(res.body).toHaveProperty("id", "api-marker-note");

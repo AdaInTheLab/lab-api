@@ -2,8 +2,8 @@ import request from "supertest";
 import app from "../src/index.js";
 
 describe("Lab Notes contract", () => {
-    it("GET /api/lab-notes returns preview objects", async () => {
-        const res = await request(app).get("/api/lab-notes");
+    it("GET /lab-notes returns preview objects", async () => {
+        const res = await request(app).get("/lab-notes");
         expect(res.status).toBe(200);
         expect(Array.isArray(res.body)).toBe(true);
 
@@ -27,8 +27,8 @@ describe("Lab Notes contract", () => {
         }
     });
 
-    it("GET /api/lab-notes/:slug returns 404 for unknown slug", async () => {
-        const res = await request(app).get("/api/lab-notes/definitely-not-a-real-slug");
+    it("GET /lab-notes/:slug returns 404 for unknown slug", async () => {
+        const res = await request(app).get("/lab-notes/definitely-not-a-real-slug");
         expect(res.status).toBe(404);
     });
 });

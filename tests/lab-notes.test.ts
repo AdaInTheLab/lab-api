@@ -1,9 +1,9 @@
 import request from "supertest";
-import app from "../src/index";
+import app from "../src/index.js";
 
 describe("Lab Notes", () => {
     it("should return all notes", async () => {
-        const res = await request(app).get("/api/lab-notes");
+        const res = await request(app).get("/lab-notes");
 
         expect(res.status).toBe(200);
         expect(Array.isArray(res.body)).toBe(true);
