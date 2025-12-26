@@ -26,3 +26,4 @@ build/
 /scripts/seed-test-data.ts
 /.env.local
 /.env.prod
+/.env.production
