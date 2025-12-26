@@ -55,9 +55,9 @@ jobs:
           cp package.json package-lock.json deploy_bundle/
 
           # Include PM2 ecosystem file if present
-          if [ -f ecosystem.config.js ]; then
-            cp ecosystem.config.js deploy_bundle/
-            echo "✅ Included ecosystem.config.js"
+          if [ -f ecosystem.config.cjs ]; then
+            cp ecosystem.config.cjs deploy_bundle/
+            echo "✅ Included ecosystem.config.cjs"
           else
             echo "ℹ️ No ecosystem.config.js found (optional)"
           fi
@@ -157,7 +157,10 @@ jobs:
             if ! command -v pm2 >/dev/null 2>&1; then
               "$NPM" i -g pm2
             fi
-          
+
+            mkdir -p /home/humanpatternlab/lab-api/logs
+            mkdir -p /home/humanpatternlab/lab-api/data
+
             # Restart/start
             if [ -f ecosystem.config.js ]; then
               pm2 start ecosystem.config.js --update-env
