@@ -1,4 +1,4 @@
-name: Deploy Lab API
+name: Deploy Lab API to Dreamhost
 
 on:
   push:
@@ -44,12 +44,12 @@ jobs:
       - name: Deploy via SFTP
         uses: wlixcc/SFTP-Deploy-Action@v1.2.4
         with:
-          server: ${{ secrets.DREAMHOST_SERVER }}
-          username: ${{ secrets.DREAMHOST_USERNAME }}
-          password: ${{ secrets.DREAMHOST_PASSWORD }}
+          server: ${{ secrets.SFTP_HOST }}
+          username: ${{ secrets.SFTP_USER }}
+          password: ${{ secrets.SFTP_PASS }}
           port: 22
-          local_path: "./"
-          remote_path: "/home/humanpatternlab/lab-api"
+          local_path: './dist/*'
+          remote_path: '${{ secrets.SFTP_PATH }}'
           sftp_only: true
           delete_remote_files: false
 
@@ -57,12 +57,12 @@ jobs:
       - name: Restart API with PM2
         uses: appleboy/ssh-action@v1.0.3
         with:
-          host: ${{ secrets.DREAMHOST_SERVER }}
-          username: ${{ secrets.DREAMHOST_USERNAME }}
-          password: ${{ secrets.DREAMHOST_PASSWORD }}
+          host: ${{ secrets.SFTP_HOST }}
+          username: ${{ secrets.SFTP_USER }}
+          password: ${{ secrets.SFTP_PASS }}
           port: 22
           script: |
-            cd /home/humanpatternlab/lab-api
+            cd ${{ secrets.SFTP_PATH }}
             npm ci --omit=dev
             pm2 restart lab-api
             pm2 save
