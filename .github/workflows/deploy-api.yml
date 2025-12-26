@@ -1,4 +1,4 @@
-name: Deploy Lab API to Dreamhost
+name: Deploy Lab API to Dreamhost 🧪
 
 on:
   push:
@@ -37,14 +37,6 @@ jobs:
           test -d dist
           ls -la dist
 
-      - name: Check OpenAPI spec (optional)
-        run: |
-          if [ -f openapi/openapi.json ]; then
-            echo "✅ OpenAPI spec present"
-          else
-            echo "ℹ️ No OpenAPI spec found (optional)"
-          fi
-
       - name: Create deploy bundle
         run: |
           set -e
@@ -54,12 +46,12 @@ jobs:
           cp -R dist deploy_bundle/dist
           cp package.json package-lock.json deploy_bundle/
 
-          # Include PM2 ecosystem file if present
           if [ -f ecosystem.config.cjs ]; then
             cp ecosystem.config.cjs deploy_bundle/
             echo "✅ Included ecosystem.config.cjs"
           else
-            echo "ℹ️ No ecosystem.config.cjs found (optional)"
+            echo "❌ ecosystem.config.cjs missing"
+            exit 1
           fi
 
       - name: Validate deploy secrets (fail fast)
@@ -80,39 +72,31 @@ jobs:
           script_stop: true
           script: |
             set -e
-            echo "SSH user: $(whoami)"
-            echo "Target: ${{ secrets.SFTP_PATH }}"
             mkdir -p "${{ secrets.SFTP_PATH }}"
-            ls -ld "${{ secrets.SFTP_PATH }}"
-
-      - name: Inspect deploy bundle contents
-        run: |
-          set -e
-          echo "PWD=$(pwd)"
-          ls -la
-          ls -la deploy_bundle
-          find deploy_bundle -maxdepth 3 -type f | head -n 50
+            mkdir -p "${{ secrets.SFTP_PATH }}/logs"
+            mkdir -p "${{ secrets.SFTP_PATH }}/data"
+            ls -ld "${{ secrets.SFTP_PATH }}" "${{ secrets.SFTP_PATH }}/logs" "${{ secrets.SFTP_PATH }}/data"
 
       - name: Upload deploy bundle via scp (key auth)
         shell: bash
         run: |
           set -euo pipefail
-      
+
           PORT="${{ secrets.SSH_PORT }}"
           PORT="${PORT:-22}"
-      
+
           mkdir -p ~/.ssh
           chmod 700 ~/.ssh
           echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_ed25519
           chmod 600 ~/.ssh/id_ed25519
-      
+
           ssh-keyscan -p "$PORT" -H "${{ secrets.SFTP_HOST }}" >> ~/.ssh/known_hosts
-      
+
           # Upload contents of deploy_bundle into the remote deploy dir
           scp -P "$PORT" -r deploy_bundle/* \
             "${{ secrets.SFTP_USER }}@${{ secrets.SFTP_HOST }}:${{ secrets.SFTP_PATH }}/"
 
-      - name: Restart API with PM2
+      - name: Restart API with PM2 (production + health check)
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.SFTP_HOST }}
@@ -122,51 +106,68 @@ jobs:
           script_stop: true
           script: |
             set -e
-          
+
             echo "User: $(whoami)"
-            echo "PATH=$PATH"
-          
-            # Prefer system node/npm; fall back to nvm-installed binaries if present
-            NODE="$(command -v node || true)"
-            NPM="$(command -v npm || true)"
-            PM2="$(command -v pm2 || true)"
-          
-            # If system npm isn't available, try common nvm location (adjust version if needed)
-            if [ -z "$NPM" ] && [ -x "$HOME/.nvm/versions/node/v20.19.6/bin/npm" ]; then
-              export PATH="$HOME/.nvm/versions/node/v20.19.6/bin:$PATH"
-              NODE="$(command -v node || true)"
-              NPM="$(command -v npm || true)"
-              PM2="$(command -v pm2 || true)"
-            fi
-          
-            echo "node: $NODE"
-            echo "npm:  $NPM"
-            echo "pm2:  ${PM2:-<missing>}"
-          
-            [ -n "$NODE" ] || { echo "FAIL: node not found"; exit 1; }
-            [ -n "$NPM" ]  || { echo "FAIL: npm not found"; exit 1; }
-          
-            "$NODE" -v
-            "$NPM" -v
-          
+            echo "Host: $(hostname)"
+            echo "PATH(before)=$PATH"
+
+            # Use known-good nvm Node/npm/pm2 paths (as confirmed on your server)
+            export PATH="$HOME/.nvm/versions/node/v20.19.6/bin:$PATH"
+            echo "PATH(after)=$PATH"
+
+            command -v node
+            command -v npm
+            command -v pm2
+            node -v
+            npm -v
+            pm2 -v
+
             cd "${{ secrets.SFTP_PATH }}"
-          
-            "$NPM" ci --omit=dev
-          
-            # Ensure pm2 exists
-            if ! command -v pm2 >/dev/null 2>&1; then
-              "$NPM" i -g pm2
-            fi
 
-            mkdir -p /home/humanpatternlab/lab-api/logs
-            mkdir -p /home/humanpatternlab/lab-api/data
+            # Ensure folders exist (for PM2 log/db paths)
+            mkdir -p "${{ secrets.SFTP_PATH }}/logs"
+            mkdir -p "${{ secrets.SFTP_PATH }}/data"
 
-            # Restart/start
-            if [ -f ecosystem.config.cjs ]; then
-              pm2 start ecosystem.config.cjs --update-env
+            # Remove any stale/broken JS ecosystem file so PM2 won't accidentally load it
+            rm -f "${{ secrets.SFTP_PATH }}/ecosystem.config.js" || true
+
+            echo "== Install production deps =="
+            npm ci --omit=dev
+
+            echo "== PM2 startOrReload (production) =="
+            if [ -f "${{ secrets.SFTP_PATH }}/ecosystem.config.cjs" ]; then
+              pm2 startOrReload "${{ secrets.SFTP_PATH }}/ecosystem.config.cjs" --env production --update-env
             else
+              echo "No ecosystem.config.cjs found; fallback"
               pm2 restart lab-api --update-env || pm2 start dist/index.js --name lab-api --update-env
             fi
-          
+
+            echo "== PM2 save/list =="
             pm2 save
             pm2 list
+
+            echo "== Health check (local) =="
+            # Update this path to your actual health endpoint if different
+            # Try /health first; fall back to /
+            if command -v curl >/dev/null 2>&1; then
+              curl -fsS "http://127.0.0.1:8001/health" || curl -fsS "http://127.0.0.1:8001/"
+              echo "✅ Health check OK"
+            else
+              echo "curl not available; skipping HTTP health check"
+            fi
+
+      - name: On failure show PM2 logs (last 120 lines)
+        if: failure()
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SFTP_HOST }}
+          username: ${{ secrets.SFTP_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: ${{ secrets.SSH_PORT }}
+          script_stop: false
+          script: |
+            export PATH="$HOME/.nvm/versions/node/v20.19.6/bin:$PATH"
+            echo "== pm2 list =="
+            pm2 list || true
+            echo "== pm2 logs (tail) =="
+            pm2 logs --lines 120 || true
