@@ -33,7 +33,7 @@ module.exports = {
                 NODE_ENV: "development",
                 PORT: 8001,
                 // Use a safe default in dev; you can override with a local .env
-                DB_PATH:
+                DB_PATH: "/data/lab.db"
             },
 
             // Production env (explicit + strict)
