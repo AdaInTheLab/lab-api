@@ -119,7 +119,7 @@ jobs:
           password: ${{ secrets.SFTP_PASS }}
           port: ${{ secrets.SSH_PORT }}
           local_path: "./deploy_bundle/"
-          remote_path: "${{ secrets.SFTP_PATH }}"/
+          remote_path: "${{ secrets.SFTP_PATH }}/"
           sftp_only: true
           delete_remote_files: false
 
