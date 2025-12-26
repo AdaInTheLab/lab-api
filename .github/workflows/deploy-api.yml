@@ -121,20 +121,41 @@ jobs:
           port: ${{ secrets.SSH_PORT }}
           script_stop: true
           script: |
-            set -e
-            whoami
+            set -euo pipefail
+      
+            # Load environment for non-interactive shells (DreamHost/NVM common)
+            [ -s "$HOME/.profile" ] && . "$HOME/.profile"
+            [ -s "$HOME/.bash_profile" ] && . "$HOME/.bash_profile"
+            [ -s "$HOME/.bashrc" ] && . "$HOME/.bashrc"
+            [ -s "$HOME/.nvm/nvm.sh" ] && . "$HOME/.nvm/nvm.sh"
+      
+            # If nvm exists, pick a Node version (adjust if you prefer a specific one)
+            if command -v nvm >/dev/null 2>&1; then
+              nvm use --lts >/dev/null 2>&1 || nvm use node >/dev/null 2>&1 || true
+            fi
+      
+            echo "PATH=$PATH"
+            command -v node
+            command -v npm
+            node -v
+            npm -v
+      
             cd "${{ secrets.SFTP_PATH }}"
-
-            # Install production deps
+      
             npm ci --omit=dev
-
-            # Robust PM2 behavior:
-            # - If ecosystem file exists, (re)start using it.
-            # - Else try restart by name, else start dist directly.
+      
+            if command -v pm2 >/dev/null 2>&1; then
+              echo "pm2 found: $(command -v pm2)"
+            else
+              echo "pm2 not found; installing for this user..."
+              npm i -g pm2
+            fi
+      
             if [ -f ecosystem.config.js ]; then
-              pm2 start ecosystem.config.js --update-env || pm2 restart ecosystem.config.js --update-env
+              pm2 start ecosystem.config.js --update-env
             else
               pm2 restart lab-api --update-env || pm2 start dist/index.js --name lab-api --update-env
             fi
-
+      
             pm2 save
+            pm2 list
