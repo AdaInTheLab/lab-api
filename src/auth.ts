@@ -10,8 +10,8 @@ export function configurePassport() {
     passport.use(
         new GitHubStrategy(
             {
-                clientID: process.env.GITHUB_CLIENT_ID || "",
-                clientSecret: process.env.GITHUB_CLIENT_SECRET || "",
+                clientID: process.env.OAUTH_GITHUB_CLIENT_ID || "",
+                clientSecret: process.env.OAUTH_GITHUB_CLIENT_SECRET || "",
                 callbackURL: "https://thehumanpatternlab.com/api/auth/github/callback",
             },
             (_accessToken: string, _refreshToken: string, profile: any, done: any) => {
