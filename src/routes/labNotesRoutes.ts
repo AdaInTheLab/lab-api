@@ -6,7 +6,7 @@ import { mapToLabNotePreview, mapToLabNoteView } from "../mappers/labNotesMapper
 
 export function registerLabNotesRoutes(app: any, db: Database.Database) {
     // Public: Lab Notes list (preview)
-    app.get("/api/lab-notes", (_req: Request, res: Response) => {
+    app.get("/lab-notes", (_req: Request, res: Response) => {
         const notes = db.prepare("SELECT * FROM v_lab_notes").all() as LabNoteRecord[];
 
         const mapped = notes.map((note) => {
@@ -21,7 +21,7 @@ export function registerLabNotesRoutes(app: any, db: Database.Database) {
     });
 
     // Public: single Lab Note (detail)
-    app.get("/api/lab-notes/:slug", (req: Request, res: Response) => {
+    app.get("/lab-notes/:slug", (req: Request, res: Response) => {
         const { slug } = req.params;
 
         const note = db.prepare("SELECT * FROM v_lab_notes WHERE slug = ?").get(slug) as

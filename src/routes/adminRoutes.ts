@@ -4,7 +4,7 @@ import type Database from "better-sqlite3";
 import { ensureAuthenticated } from "../auth.js";
 
 export function registerAdminRoutes(app: any, db: Database.Database) {
-    app.post("/api/admin/notes", ensureAuthenticated, (req: Request, res: Response) => {
+    app.post("/admin/notes", ensureAuthenticated, (req: Request, res: Response) => {
         const {
             id, title, slug, category, excerpt,
             content_html, content_md,
