@@ -167,5 +167,5 @@ jobs:
             export PATH="$HOME/.nvm/versions/node/v20.19.6/bin:$PATH"
             echo "== pm2 list =="
             pm2 list || true
-            echo "== pm2 logs (tail) =="
-            pm2 logs --lines 120 || true
+            echo "== lab-api out (last 120) =="
+            pm2 logs lab-api --out --lines 120 --nostream || true
