@@ -10,8 +10,15 @@ describe("Lab Notes contract", () => {
         if (res.body.length > 0) {
             const n = res.body[0];
 
+            // ✅ Internal identity (uuid / DB key)
             expect(n).toHaveProperty("id");
             expect(typeof n.id).toBe("string");
+            expect(n.id.length).toBeGreaterThan(0);
+
+            // ✅ Public identity for URLs
+            expect(n).toHaveProperty("slug");
+            expect(typeof n.slug).toBe("string");
+            expect(n.slug.length).toBeGreaterThan(0);
 
             expect(n).toHaveProperty("title");
             expect(typeof n.title).toBe("string");
@@ -23,7 +30,11 @@ describe("Lab Notes contract", () => {
             expect(n).toHaveProperty("tags");
             expect(Array.isArray(n.tags)).toBe(true);
 
-            expect(n.contentHtml ?? "").toBe(""); // if present, should be empty
+            // Preview payload should not include HTML (or should be empty string if present)
+            expect(n.contentHtml ?? "").toBe("");
+
+            // Optional: helps catch regressions where slug/id get swapped again
+            expect(n.slug).not.toBe(n.id);
         }
     });
 
