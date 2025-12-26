@@ -54,6 +54,22 @@ jobs:
           # If you use a PM2 ecosystem file, include it:
           cp ecosystem.config.js deploy_bundle/
 
+      - name: Fingerprint SSH private key from secrets (safe)
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+      
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+      
+          # validates it's a real private key (won't print it)
+          ssh-keygen -y -f ~/.ssh/id_ed25519 >/dev/null
+      
+          echo "Secret key fingerprint:"
+          ssh-keygen -lf ~/.ssh/id_ed25519
+
       - name: Ensure remote deploy dir exists
         uses: appleboy/ssh-action@v1.0.3
         with:
