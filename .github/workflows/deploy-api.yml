@@ -54,29 +54,11 @@ jobs:
           # If you use a PM2 ecosystem file, include it:
           cp ecosystem.config.js deploy_bundle/
 
-      - name: SSH debug with OpenSSH (verbose)
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p ~/.ssh
-          chmod 700 ~/.ssh
-      
-          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_ed25519
-          chmod 600 ~/.ssh/id_ed25519
-      
-          ssh-keyscan -p ${{ secrets.SSH_PORT }} -H ${{ secrets.SSH_HOST }} >> ~/.ssh/known_hosts
-      
-          ssh -vvv \
-            -i ~/.ssh/id_ed25519 \
-            -p ${{ secrets.SSH_PORT }} \
-            ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} \
-            "echo OK && whoami && hostname"
-
       - name: Ensure remote deploy dir exists
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.SFTP_HOST }}
-          username: ${{ secrets.SSH_USER }}
+          username: ${{ secrets.SFTP_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           port: 22
           script: |
@@ -109,7 +91,7 @@ jobs:
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.SFTP_HOST }}
-          username: ${{ secrets.SSH_USER }}
+          username: ${{ secrets.SFTP_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           port: 22
           script: |
