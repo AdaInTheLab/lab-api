@@ -2,7 +2,7 @@ name: Deploy Lab API to Dreamhost
 
 on:
   push:
-    branches: [ "main" ]
+    branches: ["main"]
 
 concurrency:
   group: deploy-lab-api
@@ -13,30 +13,29 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # 1️⃣ Checkout
       - name: Checkout repo
         uses: actions/checkout@v4
 
-      # 2️⃣ Node setup
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: 20
           cache: "npm"
 
-      # 3️⃣ Install deps
       - name: Install dependencies
         run: npm ci
 
-      # 4️⃣ Test
       - name: Run tests
         run: npm test
 
-      # 5️⃣ Build
       - name: Build API
         run: npm run build
 
-      # 6️⃣ Sanity check OpenAPI spec
+      - name: Verify build output exists
+        run: |
+          test -d dist
+          ls -la dist
+
       - name: Check OpenAPI spec (optional)
         run: |
           if [ -f openapi/openapi.json ]; then
@@ -45,7 +44,16 @@ jobs:
             echo "ℹ️ No OpenAPI spec found (optional)"
           fi
 
-      # 7️⃣ Deploy files to DreamHost
+      # Stage a deploy bundle so we ship dist + package manifests
+      - name: Create deploy bundle
+        run: |
+          rm -rf deploy_bundle
+          mkdir -p deploy_bundle
+          cp -R dist deploy_bundle/dist
+          cp package.json package-lock.json deploy_bundle/
+          # If you use a PM2 ecosystem file, include it:
+          # cp ecosystem.config.js deploy_bundle/
+
       - name: Deploy via SFTP
         uses: wlixcc/SFTP-Deploy-Action@v1.2.4
         with:
@@ -53,16 +61,11 @@ jobs:
           username: ${{ secrets.SFTP_USER }}
           password: ${{ secrets.SFTP_PASS }}
           port: 22
-          local_path: './dist/'
-          remote_path: '${{ secrets.SFTP_PATH }}'
-          sftp_only: false
+          local_path: "./deploy_bundle/"
+          remote_path: "${{ secrets.SFTP_PATH }}"
+          sftp_only: true
           delete_remote_files: false
-      - name: Verify dist exists
-        run: |
-          ls -la
-          ls -la dist
 
-      # 8️⃣ Install prod deps + restart PM2
       - name: Restart API with PM2
         uses: appleboy/ssh-action@v1.0.3
         with:
@@ -71,7 +74,8 @@ jobs:
           password: ${{ secrets.SFTP_PASS }}
           port: 22
           script: |
-            cd ${{ secrets.SFTP_PATH }}
+            set -e
+            cd "${{ secrets.SFTP_PATH }}"
             npm ci --omit=dev
             pm2 restart lab-api
             pm2 save
