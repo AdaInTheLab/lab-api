@@ -33,6 +33,7 @@ jobs:
 
       - name: Verify build output exists
         run: |
+          set -e
           test -d dist
           ls -la dist
 
@@ -44,15 +45,30 @@ jobs:
             echo "ℹ️ No OpenAPI spec found (optional)"
           fi
 
-      # Stage a deploy bundle so we ship dist + package manifests
       - name: Create deploy bundle
         run: |
+          set -e
           rm -rf deploy_bundle
           mkdir -p deploy_bundle
+
           cp -R dist deploy_bundle/dist
           cp package.json package-lock.json deploy_bundle/
-          # If you use a PM2 ecosystem file, include it:
-          cp ecosystem.config.js deploy_bundle/
+
+          # Include PM2 ecosystem file if present
+          if [ -f ecosystem.config.js ]; then
+            cp ecosystem.config.js deploy_bundle/
+            echo "✅ Included ecosystem.config.js"
+          else
+            echo "ℹ️ No ecosystem.config.js found (optional)"
+          fi
+
+      - name: Validate deploy secrets (fail fast)
+        run: |
+          test -n "${{ secrets.SFTP_HOST }}" || (echo "Missing SFTP_HOST" && exit 1)
+          test -n "${{ secrets.SFTP_USER }}" || (echo "Missing SFTP_USER" && exit 1)
+          test -n "${{ secrets.SFTP_PATH }}" || (echo "Missing SFTP_PATH" && exit 1)
+          test -n "${{ secrets.SSH_PRIVATE_KEY }}" || (echo "Missing SSH_PRIVATE_KEY" && exit 1)
+          test -n "${{ secrets.SSH_PORT }}" || (echo "Missing SSH_PORT" && exit 1)
 
       - name: Ensure remote deploy dir exists
         uses: appleboy/ssh-action@v1.0.3
@@ -60,7 +76,8 @@ jobs:
           host: ${{ secrets.SFTP_HOST }}
           username: ${{ secrets.SFTP_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
-          port: 22
+          port: ${{ secrets.SSH_PORT }}
+          script_stop: true
           script: |
             set -e
             echo "SSH user: $(whoami)"
@@ -70,6 +87,7 @@ jobs:
 
       - name: Inspect deploy bundle contents
         run: |
+          set -e
           echo "PWD=$(pwd)"
           ls -la
           ls -la deploy_bundle
@@ -81,7 +99,7 @@ jobs:
           server: ${{ secrets.SFTP_HOST }}
           username: ${{ secrets.SFTP_USER }}
           password: ${{ secrets.SFTP_PASS }}
-          port: 22
+          port: ${{ secrets.SSH_PORT }}
           local_path: "./deploy_bundle/"
           remote_path: "${{ secrets.SFTP_PATH }}"
           sftp_only: true
@@ -93,11 +111,23 @@ jobs:
           host: ${{ secrets.SFTP_HOST }}
           username: ${{ secrets.SFTP_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
-          port: 22
+          port: ${{ secrets.SSH_PORT }}
+          script_stop: true
           script: |
             set -e
             whoami
             cd "${{ secrets.SFTP_PATH }}"
+
+            # Install production deps
             npm ci --omit=dev
-            pm2 restart lab-api
+
+            # Robust PM2 behavior:
+            # - If ecosystem file exists, (re)start using it.
+            # - Else try restart by name, else start dist directly.
+            if [ -f ecosystem.config.js ]; then
+              pm2 start ecosystem.config.js --update-env || pm2 restart ecosystem.config.js --update-env
+            else
+              pm2 restart lab-api --update-env || pm2 start dist/index.js --name lab-api --update-env
+            fi
+
             pm2 save
