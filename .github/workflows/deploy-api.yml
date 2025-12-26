@@ -59,7 +59,7 @@ jobs:
             cp ecosystem.config.cjs deploy_bundle/
             echo "✅ Included ecosystem.config.cjs"
           else
-            echo "ℹ️ No ecosystem.config.js found (optional)"
+            echo "ℹ️ No ecosystem.config.cjs found (optional)"
           fi
 
       - name: Validate deploy secrets (fail fast)
@@ -162,8 +162,8 @@ jobs:
             mkdir -p /home/humanpatternlab/lab-api/data
 
             # Restart/start
-            if [ -f ecosystem.config.js ]; then
-              pm2 start ecosystem.config.js --update-env
+            if [ -f ecosystem.config.cjs ]; then
+              pm2 start ecosystem.config.cjs --update-env
             else
               pm2 restart lab-api --update-env || pm2 start dist/index.js --name lab-api --update-env
             fi
