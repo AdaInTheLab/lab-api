@@ -60,7 +60,11 @@ export function configurePassport() {
     passport.deserializeUser((user: any, done) => done(null, user));
 }
 
-export const ensureAuthenticated = (req: Request, res: Response, next: NextFunction) => {
+export const ensureAuthenticated = (
+    req: Request,
+    res: Response,
+    next: NextFunction
+) => {
     if (req.isAuthenticated?.()) return next();
     res.status(401).json({ error: "Unauthorized" });
 };
