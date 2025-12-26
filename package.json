@@ -35,7 +35,7 @@
   },
   "scripts": {
     "dev": "tsx watch src/index.ts",
-    "build": "tsc && (test -d openapi && cp -r openapi dist/openapi || echo 'No OpenAPI spec to copy')",
+    "build": "tsc && node scripts/copy-openapi.js",
     "start": "node dist/index.js",
     "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js",
     "pm2:start": "pm2 start ecosystem.config.cjs --env production",
