@@ -121,42 +121,44 @@ jobs:
           port: ${{ secrets.SSH_PORT }}
           script_stop: true
           script: |
-            set -u
-            set -o pipefail
-            set -x
+            set -e
           
-            # Safe sourcing: never returns non-zero if file is missing/empty
-            if [ -r "$HOME/.profile" ] && [ -s "$HOME/.profile" ]; then . "$HOME/.profile"; fi
-            if [ -r "$HOME/.bash_profile" ] && [ -s "$HOME/.bash_profile" ]; then . "$HOME/.bash_profile"; fi
-            if [ -r "$HOME/.bashrc" ] && [ -s "$HOME/.bashrc" ]; then . "$HOME/.bashrc"; fi
-            if [ -r "$HOME/.nvm/nvm.sh" ] && [ -s "$HOME/.nvm/nvm.sh" ]; then . "$HOME/.nvm/nvm.sh"; fi
+            echo "User: $(whoami)"
+            echo "PATH=$PATH"
           
-            # nvm use: also must not return non-zero
-            if command -v nvm >/dev/null 2>&1; then
-              nvm use --lts >/dev/null 2>&1 || nvm use node >/dev/null 2>&1 || true
+            # Prefer system node/npm; fall back to nvm-installed binaries if present
+            NODE="$(command -v node || true)"
+            NPM="$(command -v npm || true)"
+            PM2="$(command -v pm2 || true)"
+          
+            # If system npm isn't available, try common nvm location (adjust version if needed)
+            if [ -z "$NPM" ] && [ -x "$HOME/.nvm/versions/node/v20.19.6/bin/npm" ]; then
+              export PATH="$HOME/.nvm/versions/node/v20.19.6/bin:$PATH"
+              NODE="$(command -v node || true)"
+              NPM="$(command -v npm || true)"
+              PM2="$(command -v pm2 || true)"
             fi
           
-            echo "PATH=$PATH"
-            which node || true
-            which npm || true
-            node -v || true
-            npm -v || true
+            echo "node: $NODE"
+            echo "npm:  $NPM"
+            echo "pm2:  ${PM2:-<missing>}"
+          
+            [ -n "$NODE" ] || { echo "FAIL: node not found"; exit 1; }
+            [ -n "$NPM" ]  || { echo "FAIL: npm not found"; exit 1; }
+          
+            "$NODE" -v
+            "$NPM" -v
           
             cd "${{ secrets.SFTP_PATH }}"
-            ls -la
           
-            # hard fail if npm still missing
-            command -v npm >/dev/null 2>&1 || { echo "FAIL: npm not on PATH in this shell"; exit 1; }
+            "$NPM" ci --omit=dev
           
-            npm ci --omit=dev
-          
+            # Ensure pm2 exists
             if ! command -v pm2 >/dev/null 2>&1; then
-              npm i -g pm2
+              "$NPM" i -g pm2
             fi
           
-            pm2 -v || true
-            pm2 list || true
-          
+            # Restart/start
             if [ -f ecosystem.config.js ]; then
               pm2 start ecosystem.config.js --update-env
             else
@@ -164,4 +166,4 @@ jobs:
             fi
           
             pm2 save
-            pm2 list || true
+            pm2 list
