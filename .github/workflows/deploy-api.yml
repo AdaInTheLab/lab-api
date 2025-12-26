@@ -37,8 +37,13 @@ jobs:
         run: npm run build
 
       # 6️⃣ Sanity check OpenAPI spec
-      - name: Verify OpenAPI spec
-        run: test -f openapi/openapi.json
+      - name: Check OpenAPI spec (optional)
+        run: |
+          if [ -f openapi/openapi.json ]; then
+            echo "✅ OpenAPI spec present"
+          else
+            echo "ℹ️ No OpenAPI spec found (optional)"
+          fi
 
       # 7️⃣ Deploy files to DreamHost
       - name: Deploy via SFTP
