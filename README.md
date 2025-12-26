@@ -100,6 +100,69 @@ Uses Jest + Supertest for API validation.
 -   **Process manager**: PM2
 
 ------------------------------------------------------------------------
+## Operations (PM2)
+
+This API is intended to run under **PM2** in production.
+
+### Quick Commands (Shell Aliases)
+
+On the VPS, add these to `~/.bashrc` (or `~/.zshrc`):
+
+``` bash
+# ── Human Pattern Lab · API ─────────────────────────────
+alias lab-api-start='pm2 start ecosystem.config.cjs --env production'
+alias lab-api-restart='pm2 restart lab-api'
+alias lab-api-stop='pm2 stop lab-api'
+alias lab-api-logs='pm2 logs lab-api'
+alias lab-api-status='pm2 status'
+```
+
+Reload your shell:
+
+``` bash
+source ~/.bashrc
+```
+
+Usage:
+
+``` bash
+lab-api-start
+lab-api-logs
+lab-api-restart
+```
+
+### NPM Scripts (Portable Ops)
+
+These scripts live in `package.json` so the operational workflow is
+discoverable:
+
+``` bash
+npm run pm2:start
+npm run pm2:restart
+npm run pm2:stop
+npm run pm2:logs
+npm run pm2:status
+```
+
+### Notes
+
+-   Prefer **`pm2 restart lab-api`** for routine deploys once the
+    process exists.
+-   `pm2 start ecosystem.config.cjs --env production` is ideal for first
+    bootstrapping.
+-   After the first successful production start, persist the process
+    list:
+
+``` bash
+pm2 save
+pm2 startup
+```
+
+(Then run the one-line command PM2 prints to enable startup on reboot.)
+
+
+------------------------------------------------------------------------
+
 
 ## License
 
