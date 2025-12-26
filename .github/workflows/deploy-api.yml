@@ -125,13 +125,15 @@ jobs:
             set -o pipefail
             set -x
           
-            [ -s "$HOME/.profile" ] && . "$HOME/.profile"
-            [ -s "$HOME/.bash_profile" ] && . "$HOME/.bash_profile"
-            [ -s "$HOME/.bashrc" ] && . "$HOME/.bashrc"
-            [ -s "$HOME/.nvm/nvm.sh" ] && . "$HOME/.nvm/nvm.sh"
+            # Safe sourcing: never returns non-zero if file is missing/empty
+            if [ -r "$HOME/.profile" ] && [ -s "$HOME/.profile" ]; then . "$HOME/.profile"; fi
+            if [ -r "$HOME/.bash_profile" ] && [ -s "$HOME/.bash_profile" ]; then . "$HOME/.bash_profile"; fi
+            if [ -r "$HOME/.bashrc" ] && [ -s "$HOME/.bashrc" ]; then . "$HOME/.bashrc"; fi
+            if [ -r "$HOME/.nvm/nvm.sh" ] && [ -s "$HOME/.nvm/nvm.sh" ]; then . "$HOME/.nvm/nvm.sh"; fi
           
+            # nvm use: also must not return non-zero
             if command -v nvm >/dev/null 2>&1; then
-              nvm use --lts || nvm use node || true
+              nvm use --lts >/dev/null 2>&1 || nvm use node >/dev/null 2>&1 || true
             fi
           
             echo "PATH=$PATH"
@@ -140,26 +142,26 @@ jobs:
             node -v || true
             npm -v || true
           
-            cd "${{ secrets.SFTP_PATH }}" || { echo "FAIL: cannot cd to deploy dir"; exit 1; }
+            cd "${{ secrets.SFTP_PATH }}"
             ls -la
           
-            # If npm still isn't available, hard fail with a clear message
+            # hard fail if npm still missing
             command -v npm >/dev/null 2>&1 || { echo "FAIL: npm not on PATH in this shell"; exit 1; }
           
-            npm ci --omit=dev || { echo "FAIL: npm ci"; exit 1; }
+            npm ci --omit=dev
           
             if ! command -v pm2 >/dev/null 2>&1; then
-              npm i -g pm2 || { echo "FAIL: installing pm2"; exit 1; }
+              npm i -g pm2
             fi
           
             pm2 -v || true
             pm2 list || true
           
             if [ -f ecosystem.config.js ]; then
-              pm2 start ecosystem.config.js --update-env || { echo "FAIL: pm2 start ecosystem"; exit 1; }
+              pm2 start ecosystem.config.js --update-env
             else
-              pm2 restart lab-api --update-env || pm2 start dist/index.js --name lab-api --update-env || { echo "FAIL: pm2 start fallback"; exit 1; }
+              pm2 restart lab-api --update-env || pm2 start dist/index.js --name lab-api --update-env
             fi
           
-            pm2 save || { echo "FAIL: pm2 save"; exit 1; }
+            pm2 save
             pm2 list || true
