@@ -19,6 +19,15 @@ function getGithubOAuthEnv(key: EnvKey): string | undefined {
     );
 }
 
+export function isGithubOAuthEnabled(): boolean {
+    if (process.env.NODE_ENV === "test") return false;
+    return !!(
+        getGithubOAuthEnv("CLIENT_ID") &&
+        getGithubOAuthEnv("CLIENT_SECRET") &&
+        getGithubOAuthEnv("CALLBACK_URL")
+    );
+}
+
 export function configurePassport() {
     // ✅ Tests should not require OAuth env vars
     if (process.env.NODE_ENV === "test") return;

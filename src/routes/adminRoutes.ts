@@ -2,8 +2,7 @@
 import type { Request, Response } from "express";
 import type Database from "better-sqlite3";
 import { randomUUID } from "node:crypto";
-import { ensureAuthenticated } from "../auth.js";
-import passport from "passport";
+import passport, { ensureAuthenticated, isGithubOAuthEnabled } from "../auth.js";
 
 export function registerAdminRoutes(app: any, db: Database.Database) {
     // Ensure slug uniqueness (safe to run repeatedly)
@@ -77,23 +76,25 @@ export function registerAdminRoutes(app: any, db: Database.Database) {
         }
     });
 
-    // Start GitHub OAuth
-    app.get(
-        "/api/auth/github",
-        passport.authenticate("github", { scope: ["user:email"] })
-    );
+    if (isGithubOAuthEnabled()) {
+        // Start GitHub OAuth
+        app.get(
+            "/api/auth/github",
+            passport.authenticate("github", {scope: ["user:email"]})
+        );
 
-    // GitHub OAuth callback
-    app.get(
-        "/api/auth/github/callback",
-        passport.authenticate("github", {
-            failureRedirect: "/login",
-            session: true,
-        }),
-        (_req: Request, res: Response) => {
-            res.redirect("/admin");
-        }
-    );
+        // GitHub OAuth callback
+        app.get(
+            "/api/auth/github/callback",
+            passport.authenticate("github", {
+                failureRedirect: "/login",
+                session: true,
+            }),
+            (_req: Request, res: Response) => {
+                res.redirect("/admin");
+            }
+        );
+    }
     // Optional helpers (very useful)
     app.get("/api/auth/me", (req: Request, res: Response) => {
         res.json({ user: req.user ?? null });
