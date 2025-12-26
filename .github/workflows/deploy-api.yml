@@ -52,7 +52,7 @@ jobs:
           cp -R dist deploy_bundle/dist
           cp package.json package-lock.json deploy_bundle/
           # If you use a PM2 ecosystem file, include it:
-          # cp ecosystem.config.js deploy_bundle/
+          cp ecosystem.config.js deploy_bundle/
 
       - name: Deploy via SFTP
         uses: wlixcc/SFTP-Deploy-Action@v1.2.4
