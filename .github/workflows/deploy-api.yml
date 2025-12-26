@@ -93,6 +93,25 @@ jobs:
           ls -la deploy_bundle
           find deploy_bundle -maxdepth 3 -type f | head -n 50
 
+      - name: Verify remote path is writable (pre-SFTP)
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SFTP_HOST }}
+          username: ${{ secrets.SFTP_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: ${{ secrets.SSH_PORT }}
+          script_stop: true
+          script: |
+            set -e
+            echo "User: $(whoami)"
+            echo "Path: ${{ secrets.SFTP_PATH }}"
+            ls -ld "${{ secrets.SFTP_PATH }}"
+            cd "${{ secrets.SFTP_PATH }}"
+            touch .gha_write_test
+            rm .gha_write_test
+            echo "✅ Writable"
+
+
       - name: Deploy via SFTP
         uses: wlixcc/SFTP-Deploy-Action@v1.2.4
         with:
@@ -101,7 +120,7 @@ jobs:
           password: ${{ secrets.SFTP_PASS }}
           port: ${{ secrets.SSH_PORT }}
           local_path: "./deploy_bundle/"
-          remote_path: "${{ secrets.SFTP_PATH }}"
+          remote_path: "${{ secrets.SFTP_PATH }}"/
           sftp_only: true
           delete_remote_files: false
 
