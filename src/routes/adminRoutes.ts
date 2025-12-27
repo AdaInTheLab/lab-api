@@ -79,13 +79,13 @@ export function registerAdminRoutes(app: any, db: Database.Database) {
     if (isGithubOAuthEnabled()) {
         // Start GitHub OAuth
         app.get(
-            "/api/auth/github",
+            "/auth/github",
             passport.authenticate("github", {scope: ["user:email"]})
         );
 
         // GitHub OAuth callback
         app.get(
-            "/api/auth/github/callback",
+            "/auth/github/callback",
             passport.authenticate("github", {
                 failureRedirect: "/login",
                 session: true,
@@ -96,11 +96,11 @@ export function registerAdminRoutes(app: any, db: Database.Database) {
         );
     }
     // Optional helpers (very useful)
-    app.get("/api/auth/me", (req: Request, res: Response) => {
+    app.get("/auth/me", (req: Request, res: Response) => {
         res.json({ user: req.user ?? null });
     });
 
-    app.post("/api/auth/logout", (req: Request, res: Response) => {
+    app.post("/auth/logout", (req: Request, res: Response) => {
         req.logout(() => {
             res.json({ ok: true });
         });
