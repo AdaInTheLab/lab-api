@@ -14,6 +14,8 @@ export interface LabNoteRecord {
     published_at?: string;
     content_html?: string | null;
     content_md?: string | null;
+    created_at?: string;
+    updated_at?: string;
 }
 
 export interface TagResult {

@@ -9,6 +9,9 @@ module.exports = {
             // Run the built output in production
             script: "dist/index.js",
 
+            // 👇 FORCE Node 20
+            interpreter: "/home/humanpatternlab/.nvm/versions/node/v20.19.0/bin/node",
+
             // Where PM2 runs the process from (helps relative paths behave)
             cwd: "/home/humanpatternlab/lab-api",
 
@@ -21,6 +24,8 @@ module.exports = {
             watch: false,
             max_restarts: 10,
             min_uptime: "10s",
+
+            env_file: ".env.production",
 
             // Logs (PM2 will create these if directories exist)
             output: "/home/humanpatternlab/lab-api/logs/out.log",
