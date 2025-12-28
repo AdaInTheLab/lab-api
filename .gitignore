@@ -27,3 +27,5 @@ build/
 /.env.local
 /.env.prod
 /.env.production
+
+data/lab.local.db
