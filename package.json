@@ -36,10 +36,10 @@
     "passport-github2": "^0.1.12"
   },
   "scripts": {
-    "dev": "cross-env NODE_ENV=local tsx watch src/index.ts",
+    "dev": "cross-env NODE_ENV=development tsx watch src/index.ts & tsx scripts/openDevHealth.ts",
     "build": "tsc && node scripts/copy-openapi.js",
     "start": "cross-env NODE_ENV=production node dist/index.js",
-    "test": "node --experimental-vm-modules scripts/jest.mjs",
+    "test": "cross-env NODE_OPTIONS=--experimental-vm-modules npx --no-install jest",
     "pm2:start": "pm2 start ecosystem.config.cjs --env production",
     "pm2:stop": "pm2 stop lab-api",
     "pm2:restart": "pm2 restart lab-api",
