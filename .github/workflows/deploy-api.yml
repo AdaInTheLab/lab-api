@@ -23,7 +23,7 @@ jobs:
           cache: "npm"
 
       - name: Install dependencies
-        run: npm ci
+        run: npm ci --omit=dev
 
       - name: Run tests
         run: npm test
@@ -124,6 +124,9 @@ jobs:
 
             cd "${{ secrets.SFTP_PATH }}"
 
+            echo "== Verify dist on server =="
+            test -f dist/index.js || (echo "❌ dist/index.js missing on server" && ls -la && ls -la dist || true && exit 1)
+
             # Ensure folders exist (for PM2 log/db paths)
             mkdir -p "${{ secrets.SFTP_PATH }}/logs"
             mkdir -p "${{ secrets.SFTP_PATH }}/data"
@@ -147,24 +150,24 @@ jobs:
             pm2 list
 
             echo "== Health check (local) =="
-              for i in 1 2 3 4 5 6 7 8 9 10; do
-                if curl -fsS "http://127.0.0.1:8001/health" >/dev/null; then
-                  echo "✅ Health check OK (/health)"
-                  exit 0
-                fi
-                echo "…not up yet (attempt $i/10). waiting 1s"
-                sleep 1
-              done
-              
-              echo "❌ Health check failed after retries"
-              echo "== PM2 status =="
-              pm2 list || true
-              echo "== PM2 describe =="
-              pm2 describe lab-api || true
-              echo "== PM2 last logs =="
-              pm2 logs lab-api --err --lines 200 --nostream || true
-              pm2 logs lab-api --out --lines 200 --nostream || true
-              exit 1
+            for i in 1 2 3 4 5 6 7 8 9 10; do
+              if curl -fsS "http://127.0.0.1:8001/health" >/dev/null; then
+                echo "✅ Health check OK (/health)"
+                exit 0
+              fi
+              echo "…not up yet (attempt $i/10). waiting 1s"
+              sleep 1
+            done
+            
+            echo "❌ Health check failed after retries"
+            echo "== PM2 status =="
+            pm2 list || true
+            echo "== PM2 describe =="
+            pm2 describe lab-api || true
+            echo "== PM2 last logs =="
+            pm2 logs lab-api --err --lines 200 --nostream || true
+            pm2 logs lab-api --out --lines 200 --nostream || true
+            exit 1
 
       - name: On failure show PM2 logs (last 120 lines)
         if: failure()
