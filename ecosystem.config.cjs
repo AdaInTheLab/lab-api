@@ -9,8 +9,7 @@ module.exports = {
             // Run the built output in production
             script: "dist/index.js",
 
-            // 👇 FORCE Node 20
-            interpreter: "/home/humanpatternlab/.nvm/versions/node/v20.19.0/bin/node",
+            interpreter: "node",
 
             // Where PM2 runs the process from (helps relative paths behave)
             cwd: "/home/humanpatternlab/lab-api",
