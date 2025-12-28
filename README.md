@@ -22,7 +22,7 @@ Public knowledge flows freely. Admin routes are... supervised. 😼
 
 ------------------------------------------------------------------------
 
-## Quick Start (Development)
+## Quick Start (Development) 
 
 ``` bash
 git clone https://github.com/AdaInTheLab/the-human-pattern-lab-api.git
