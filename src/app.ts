@@ -2,10 +2,9 @@
 import express from "express";
 import cors from "cors";
 import session from "express-session";
-import dotenv from "dotenv";
 
 import passport, { configurePassport } from "./auth.js";
-import { resolveDbPath, openDb, bootstrapDb, seedMarkerNote } from "./db.js";
+import { resolveDbPath, openDb, bootstrapDb, seedMarkerNote, isDbEmpty } from "./db.js";
 import { registerHealthRoutes } from "./routes/healthRoutes.js";
 import { registerLabNotesRoutes } from "./routes/labNotesRoutes.js";
 import { registerAdminRoutes } from "./routes/adminRoutes.js";
@@ -13,10 +12,8 @@ import OpenApiValidator from "express-openapi-validator";
 import { registerOpenApiRoutes } from "./routes/openapiRoutes.js";
 import fs from "node:fs";
 import path from "node:path";
-
-if (process.env.NODE_ENV !== "test") {
-    dotenv.config();
-}
+import { env } from "./env.js";
+import { seedDevDb } from "./seed/devSeed.js";
 
 export function createApp() {
     const app = express();
@@ -25,12 +22,20 @@ export function createApp() {
     const db = openDb(dbPath);
 
     bootstrapDb(db);
+
+    // Auto-seed: only once, only in development, only if empty
+    if (env.NODE_ENV === "development" && isDbEmpty(db)) {
+        console.log("🌱 DB empty in development — auto-seeding…");
+        seedDevDb(db);
+    }
+
+    // Optional: marker note is fine, but only after seeding (so it doesn't block "empty" detection)
     seedMarkerNote(db);
 
     app.use(cors());
     app.use(express.json());
 
-    const isTest = process.env.NODE_ENV === "test";
+    const isTest = env.NODE_ENV === "test";
     const specPath = path.join(process.cwd(), "openapi", "openapi.json");
 
     if (!isTest && fs.existsSync(specPath)) {
@@ -61,7 +66,6 @@ export function createApp() {
     registerLabNotesRoutes(app, db);
     registerAdminRoutes(app, db);
 
-    // Optional: also guard this route registration, or let openapiRoutes.ts guard internally
     registerOpenApiRoutes(app);
 
     return app;

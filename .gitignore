@@ -24,8 +24,9 @@ build/
 /cli/node_modules/
 /cli/package-lock.json
 /scripts/seed-test-data.ts
-/.env.local
+/.env.development
 /.env.prod
 /.env.production
 
-data/lab.local.db
+data/lab.dev.db
+/data/lab.dev.db
