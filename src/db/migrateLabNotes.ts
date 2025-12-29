@@ -1,6 +1,25 @@
 // src/db/migrateLabNotes.ts
 import Database from "better-sqlite3";
 
+const LAB_NOTES_SCHEMA_VERSION = 1;
+
+function getLabNotesSchemaVersion(db: Database.Database): number {
+    const row = db
+        .prepare(`SELECT value FROM schema_meta WHERE key='lab_notes_schema_version'`)
+        .get() as { value?: string } | undefined;
+
+    return row?.value ? Number(row.value) : 0;
+}
+
+function setLabNotesSchemaVersion(db: Database.Database, version: number) {
+    db.prepare(`
+    INSERT INTO schema_meta (key, value)
+    VALUES ('lab_notes_schema_version', ?)
+    ON CONFLICT(key) DO UPDATE SET value = excluded.value
+  `).run(String(version));
+}
+
+
 type ColDef = { name: string; ddl: string };
 type MigrationLogFn = (msg: string) => void;
 
@@ -88,6 +107,14 @@ export function migrateLabNotesSchema(
         }
     }
 
+    db.exec(`
+        CREATE TABLE IF NOT EXISTS schema_meta (
+                                                   key TEXT PRIMARY KEY,
+                                                   value TEXT NOT NULL
+        );
+    `);
+
+    const prevVersion = getLabNotesSchemaVersion(db);
     // Backfills for legacy rows
     db.exec(`
         UPDATE lab_notes
@@ -174,14 +201,15 @@ export function migrateLabNotesSchema(
         createdFreshTable: !hadLabNotesTable,
     };
 
-    if (log && (result.createdFreshTable || result.addedColumns.length > 0)) {
+    if (log && (result.createdFreshTable || result.addedColumns.length > 0 || prevVersion !== LAB_NOTES_SCHEMA_VERSION)) {
         const colsPart =
             result.addedColumns.length > 0
                 ? `added ${result.addedColumns.length} column(s): ${result.addedColumns.join(", ")}`
-                : "no new columns";
-        const tablePart = result.createdFreshTable ? "created lab_notes table" : "updated lab_notes table";
-        log(`[db] lab_notes migration: ${tablePart}; ${colsPart}`);
+                : "no column changes";
+
+        log(`[db] lab_notes migration: v${prevVersion} → v${LAB_NOTES_SCHEMA_VERSION}; ${colsPart}`);
     }
 
+    setLabNotesSchemaVersion(db, LAB_NOTES_SCHEMA_VERSION);
     return result;
 }

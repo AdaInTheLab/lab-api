@@ -12,7 +12,6 @@ import { marked } from "marked"; // npm i marked
 export function registerLabNotesRoutes(app: any, db: Database.Database) {
     // Public: Lab Notes list (preview)
     app.get("/lab-notes", (_req: Request, res: Response) => {
-
         try {
             const notes = db.prepare(`
                 SELECT
@@ -22,6 +21,7 @@ export function registerLabNotesRoutes(app: any, db: Database.Database) {
                 FROM v_lab_notes
                 ORDER BY published_at DESC
             `).all() as LabNoteRecord[];
+
             const mapped = notes.map((note) => {
                 const tagRows = db
                     .prepare("SELECT tag FROM lab_note_tags WHERE note_id = ?")
@@ -29,19 +29,16 @@ export function registerLabNotesRoutes(app: any, db: Database.Database) {
 
                 return mapToLabNotePreview(note, tagRows.map((t) => t.tag));
             });
-            res.json(mapped);
-            res.json(notes);
+
+            return res.json(mapped);
         } catch (e: any) {
             console.error("GET /lab-notes failed:", e?.message);
-            res.status(500).json({ error: e?.message ?? "unknown" });
+
+            if (res.headersSent) return;
+            return res.status(500).json({ error: e?.message ?? "unknown" });
         }
-
-
-
-
-
-
     });
+    
 
     // Public: single Lab Note (detail)
     app.get("/lab-notes/:slug", (req: Request, res: Response) => {
