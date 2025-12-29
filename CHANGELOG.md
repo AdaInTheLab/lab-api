@@ -2,6 +2,8 @@
 
 ### CORE [SCMS] Add v2 Lab Notes schema: append-only revisions + pointers 🧱
 
+### NOTE [SCMS] reserve category field; do not map to type
+
 ### FIX [SCMS] Prevent double response in lab-notes route 🧹
 
 - Remove duplicate res.json call in /lab-notes handler
