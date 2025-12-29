@@ -1,3 +1,12 @@
+## [0.1.2]
+
+### FIX [SCMS] Prevent double response in lab-notes route 🧹
+
+- Remove duplicate res.json call in /lab-notes handler
+- Ensure handler returns after sending response
+- Eliminate "Cannot set headers after they are sent" errors
+- Stabilize test output and runtime behavior
+
 ## [0.1.1] – 2025-12-29
 
 ### Added
