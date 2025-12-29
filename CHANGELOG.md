@@ -1,4 +1,6 @@
-## [0.1.2]
+## [0.1.2] – 2025-12-29
+
+### CORE [SCMS] Add v2 Lab Notes schema: append-only revisions + pointers 🧱
 
 ### FIX [SCMS] Prevent double response in lab-notes route 🧹
 

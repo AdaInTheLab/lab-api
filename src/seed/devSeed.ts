@@ -1,6 +1,16 @@
 // src/seed/devSeed.ts
 import Database from "better-sqlite3";
 
+
+export function openDb() {
+    const dbPath =
+        process.env.NODE_ENV === "production"
+            ? "lab.db"
+            : "lab.dev.db";
+
+    return new Database(dbPath);
+}
+
 type SeedNote = {
     id: string;                // row id (uuid)
     group_id?: string;         // shared id for translated siblings (optional; will default to id)

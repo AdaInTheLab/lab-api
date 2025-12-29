@@ -30,9 +30,7 @@ const __dirname = path.dirname(__filename);
 
 // scripts/ is sibling to src/, so ../data resolves to projectRoot/data
 const defaultDbFile =
-    NODE_ENV === "development"
-        ? path.join(__dirname, "../data/lab.dev.db")
-        : path.join(__dirname, "../data/lab.db");
+    NODE_ENV === "production" ? "lab.db" : "lab.dev.db";
 
 const dbPath =
     NODE_ENV === "test"
