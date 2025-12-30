@@ -122,6 +122,7 @@ jobs:
             npm -v
             pm2 -v
 
+            grep -E '^NODE_ENV=' .env.production || true
             cd "${{ secrets.SFTP_PATH }}"
 
             echo "== Verify dist on server =="
