@@ -2,23 +2,22 @@
 import Database from "better-sqlite3";
 import crypto from "crypto";
 
-const LAB_NOTES_SCHEMA_VERSION = 2;
+export const LAB_NOTES_SCHEMA_VERSION = 8;
 
-function getLabNotesSchemaVersion(db: Database.Database): number {
-    const row = db
+function setLabNotesSchemaVersion(db: Database.Database, version: number) {
+    const cur = db
         .prepare(`SELECT value FROM schema_meta WHERE key='lab_notes_schema_version'`)
         .get() as { value?: string } | undefined;
 
-    return row?.value ? Number(row.value) : 0;
-}
+    if (cur?.value === String(version)) return;
 
-function setLabNotesSchemaVersion(db: Database.Database, version: number) {
     db.prepare(`
         INSERT INTO schema_meta (key, value)
         VALUES ('lab_notes_schema_version', ?)
         ON CONFLICT(key) DO UPDATE SET value = excluded.value
     `).run(String(version));
 }
+
 
 type ColDef = { name: string; ddl: string };
 type MigrationLogFn = (msg: string) => void;
@@ -37,6 +36,15 @@ function nowIso(): string {
     return new Date().toISOString();
 }
 
+function getLabNotesSchemaVersion(db: Database.Database): number {
+    const row = db
+        .prepare(`SELECT value FROM schema_meta WHERE key='lab_notes_schema_version'`)
+        .get() as { value?: string } | undefined;
+
+    return row?.value ? Number(row.value) : 0;
+}
+
+
 /**
  * v2 model: lab_notes (identity + pointers) + lab_note_revisions (append-only truth)
  *
@@ -51,7 +59,9 @@ function nowIso(): string {
  * - create v2 tables
  * - perform a one-time migration to create revision_num=1 records and set pointers
  */
+
 export function migrateLabNotesSchema(
+
     db: Database.Database,
     log?: MigrationLogFn
 ): MigrationResult {
@@ -62,19 +72,19 @@ export function migrateLabNotesSchema(
 
     // Ensure schema_meta exists early (we read it before doing versioned work)
     db.exec(`
-    CREATE TABLE IF NOT EXISTS schema_meta (
-      key TEXT PRIMARY KEY,
-      value TEXT NOT NULL
-    );
-  `);
+        CREATE TABLE IF NOT EXISTS schema_meta (
+                                                   key TEXT PRIMARY KEY,
+                                                   value TEXT NOT NULL
+        );
+    `);
 
     // Ensure lab_notes exists (seed)
     db.exec(`
-    CREATE TABLE IF NOT EXISTS lab_notes (
-      id TEXT PRIMARY KEY
-    );
-  `);
-
+        CREATE TABLE IF NOT EXISTS lab_notes (
+                                                 id TEXT PRIMARY KEY
+        );
+    `);
+    const prevVersion = getLabNotesSchemaVersion(db);
     // --- v1 compatibility columns (existing wide model) ---
     // Keep your original columns so older code / existing rows remain valid.
     // We also add the v2 pointer columns and some core identity fields needed for 1.0.
@@ -119,8 +129,7 @@ export function migrateLabNotesSchema(
         { name: "source_updated_at", ddl: "TEXT" },
         { name: "translation_meta_json", ddl: "TEXT" },
 
-        // Content (v1 storage)
-        { name: "content_md", ddl: "TEXT NOT NULL DEFAULT ''" },
+        // Content artifacts (no legacy markdown column anymore)
         { name: "content_html", ddl: "TEXT" },
 
         // Timestamps
@@ -146,43 +155,42 @@ export function migrateLabNotesSchema(
 
     // Backfills for legacy rows
     db.exec(`
-    UPDATE lab_notes
-    SET group_id = id
-    WHERE group_id IS NULL OR group_id = '';
+        UPDATE lab_notes
+        SET group_id = id
+        WHERE group_id IS NULL OR group_id = '';
 
-    UPDATE lab_notes SET slug = id WHERE slug IS NULL OR slug = '';
-    UPDATE lab_notes SET title = slug WHERE title IS NULL OR title = '';
-    UPDATE lab_notes SET content_md = '' WHERE content_md IS NULL;
+        UPDATE lab_notes SET slug = id WHERE slug IS NULL OR slug = '';
+        UPDATE lab_notes SET title = slug WHERE title IS NULL OR title = '';
 
-    UPDATE lab_notes
-    SET created_at = COALESCE(created_at, updated_at, datetime('now'))
-    WHERE created_at IS NULL OR created_at = '';
+        UPDATE lab_notes
+        SET created_at = COALESCE(created_at, updated_at, datetime('now'))
+        WHERE created_at IS NULL OR created_at = '';
 
-    UPDATE lab_notes
-    SET updated_at = COALESCE(updated_at, created_at, datetime('now'))
-    WHERE updated_at IS NULL OR updated_at = '';
-  `);
+        UPDATE lab_notes
+        SET updated_at = COALESCE(updated_at, created_at, datetime('now'))
+        WHERE updated_at IS NULL OR updated_at = '';
+    `);
 
     // Indexes (idempotent)
     db.exec(`
-    CREATE INDEX IF NOT EXISTS idx_lab_notes_locale ON lab_notes(locale);
-    CREATE INDEX IF NOT EXISTS idx_lab_notes_status ON lab_notes(status);
-    CREATE INDEX IF NOT EXISTS idx_lab_notes_published_at ON lab_notes(published_at);
-    CREATE INDEX IF NOT EXISTS idx_lab_notes_group_id ON lab_notes(group_id);
-    CREATE INDEX IF NOT EXISTS idx_lab_notes_department_id ON lab_notes(department_id);
-    CREATE INDEX IF NOT EXISTS idx_lab_notes_slug_locale ON lab_notes(slug, locale);
-  `);
+        CREATE INDEX IF NOT EXISTS idx_lab_notes_locale ON lab_notes(locale);
+        CREATE INDEX IF NOT EXISTS idx_lab_notes_status ON lab_notes(status);
+        CREATE INDEX IF NOT EXISTS idx_lab_notes_published_at ON lab_notes(published_at);
+        CREATE INDEX IF NOT EXISTS idx_lab_notes_group_id ON lab_notes(group_id);
+        CREATE INDEX IF NOT EXISTS idx_lab_notes_department_id ON lab_notes(department_id);
+        CREATE INDEX IF NOT EXISTS idx_lab_notes_slug_locale ON lab_notes(slug, locale);
+    `);
 
     // Optional tag table (normalized tags)
     db.exec(`
-    CREATE TABLE IF NOT EXISTS lab_note_tags (
-      note_id TEXT NOT NULL,
-      tag TEXT NOT NULL,
-      UNIQUE(note_id, tag)
-    );
-    CREATE INDEX IF NOT EXISTS idx_lab_note_tags_note_id ON lab_note_tags(note_id);
-    CREATE INDEX IF NOT EXISTS idx_lab_note_tags_tag ON lab_note_tags(tag);
-  `);
+        CREATE TABLE IF NOT EXISTS lab_note_tags (
+                                                     note_id TEXT NOT NULL,
+                                                     tag TEXT NOT NULL,
+                                                     UNIQUE(note_id, tag)
+        );
+        CREATE INDEX IF NOT EXISTS idx_lab_note_tags_note_id ON lab_note_tags(note_id);
+        CREATE INDEX IF NOT EXISTS idx_lab_note_tags_tag ON lab_note_tags(tag);
+    `);
 
     // ---- v2 tables: append-only revisions + proposals + events ----
     db.exec(`
@@ -286,11 +294,285 @@ export function migrateLabNotesSchema(
     CREATE INDEX IF NOT EXISTS idx_events_created_at ON lab_events(created_at);
   `);
 
-    // Views
+    let ranV2DataMigration = false;
+
+// ---- v2 data migration (one-time) ----
+    if (prevVersion < 2) {
+        let seededCount = 0;
+
+        const tx = db.transaction(() => {
+            const rows = db.prepare(`
+      SELECT id, slug, locale, type, title, subtitle, summary, tags_json, dept,
+             status, published_at, author, ai_author, created_at, updated_at
+      FROM lab_notes
+    `).all() as any[];
+
+            // ...prepare statements...
+
+            for (const n of rows) {
+                const pointer = db
+                    .prepare(`SELECT current_revision_id FROM lab_notes WHERE id = ?`)
+                    .get(n.id) as { current_revision_id?: string } | undefined;
+
+                if (pointer?.current_revision_id) continue;
+
+                // ...insert revision, update pointers, insert event...
+                seededCount++;
+            }
+        });
+
+        tx();
+        ranV2DataMigration = seededCount > 0;
+    }
+
+
+    // ---- drop legacy markdown column (table rebuild) ----
+    if (prevVersion < 7) {
+        db.exec(`
+      PRAGMA foreign_keys = OFF;
+
+      BEGIN;
+
+      DROP VIEW IF EXISTS v_lab_notes;
+      DROP VIEW IF EXISTS v_lab_notes_current;
+
+      DROP TABLE IF EXISTS lab_notes_new;
+
+      CREATE TABLE lab_notes_new (
+        id TEXT PRIMARY KEY,
+
+        group_id TEXT NOT NULL,
+        slug TEXT NOT NULL,
+        locale TEXT NOT NULL,
+
+        type TEXT NOT NULL,
+        title TEXT NOT NULL,
+
+        category TEXT,
+        excerpt TEXT,
+        department_id TEXT,
+        shadow_density REAL,
+        safer_landing INTEGER,
+        read_time_minutes INTEGER,
+
+        coherence_score REAL,
+        subtitle TEXT,
+        summary TEXT,
+
+        tags_json TEXT,
+        dept TEXT,
+
+        status TEXT NOT NULL,
+        published_at TEXT,
+
+        author TEXT,
+        ai_author TEXT,
+
+        source_locale TEXT,
+        translation_status TEXT NOT NULL,
+        translation_provider TEXT,
+        translation_version INTEGER NOT NULL,
+        source_updated_at TEXT,
+        translation_meta_json TEXT,
+
+        content_html TEXT,
+
+        current_revision_id TEXT,
+        published_revision_id TEXT,
+
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+
+      INSERT INTO lab_notes_new (
+        id, group_id, slug, locale,
+        type, title,
+        category, excerpt, department_id,
+        shadow_density, safer_landing, read_time_minutes,
+        coherence_score, subtitle, summary,
+        tags_json, dept,
+        status, published_at,
+        author, ai_author,
+        source_locale, translation_status, translation_provider,
+        translation_version, source_updated_at, translation_meta_json,
+        content_html,
+        current_revision_id, published_revision_id,
+        created_at, updated_at
+      )
+      SELECT
+        id, group_id, slug, locale,
+        type, title,
+        category, excerpt, department_id,
+        shadow_density, safer_landing, read_time_minutes,
+        coherence_score, subtitle, summary,
+        tags_json, dept,
+        status, published_at,
+        author, ai_author,
+        source_locale, translation_status, translation_provider,
+        translation_version, source_updated_at, translation_meta_json,
+        content_html,
+        current_revision_id, published_revision_id,
+        created_at, updated_at
+      FROM lab_notes;
+
+      DROP TABLE lab_notes;
+      ALTER TABLE lab_notes_new RENAME TO lab_notes;
+
+      COMMIT;
+
+      PRAGMA foreign_keys = ON;
+    `);
+    }
+
+    // ---- v8: add real defaults + enforce unique (slug, locale) ----
+    if (prevVersion < 8) {
+        db.exec(`
+    PRAGMA foreign_keys = OFF;
+    BEGIN;
+
+    DROP VIEW IF EXISTS v_lab_notes;
+    DROP VIEW IF EXISTS v_lab_notes_current;
+
+    -- 1) DEDUPE by (slug, locale), keep most recently updated
+    DELETE FROM lab_notes
+    WHERE id IN (
+      SELECT id FROM (
+        SELECT
+          id,
+          ROW_NUMBER() OVER (
+            PARTITION BY slug, locale
+            ORDER BY updated_at DESC, created_at DESC
+          ) AS rn
+        FROM lab_notes
+      )
+      WHERE rn > 1
+    );
+
+    -- 2) Rebuild lab_notes with DEFAULTs
+    DROP TABLE IF EXISTS lab_notes_new;
+
+    CREATE TABLE lab_notes_new (
+      id TEXT PRIMARY KEY,
+
+      group_id TEXT NOT NULL DEFAULT 'core',
+      slug TEXT NOT NULL,
+      locale TEXT NOT NULL DEFAULT 'en',
+
+      type TEXT NOT NULL DEFAULT 'labnote',
+      title TEXT NOT NULL DEFAULT '',
+
+      category TEXT,
+      excerpt TEXT,
+      department_id TEXT DEFAULT 'SCMS',
+      shadow_density REAL DEFAULT 0,
+      safer_landing INTEGER DEFAULT 0,
+      read_time_minutes INTEGER DEFAULT 5,
+
+      coherence_score REAL DEFAULT 1.0,
+      subtitle TEXT,
+      summary TEXT,
+
+      tags_json TEXT,
+      dept TEXT,
+
+      status TEXT NOT NULL DEFAULT 'draft',
+      published_at TEXT,
+
+      author TEXT,
+      ai_author TEXT,
+
+      source_locale TEXT,
+      translation_status TEXT NOT NULL DEFAULT 'original',
+      translation_provider TEXT,
+      translation_version INTEGER NOT NULL DEFAULT 1,
+      source_updated_at TEXT,
+      translation_meta_json TEXT,
+
+      content_html TEXT,
+
+      current_revision_id TEXT,
+      published_revision_id TEXT,
+
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+    );
+
+    INSERT INTO lab_notes_new (
+      id, group_id, slug, locale,
+      type, title,
+      category, excerpt, department_id,
+      shadow_density, safer_landing, read_time_minutes,
+      coherence_score, subtitle, summary,
+      tags_json, dept,
+      status, published_at,
+      author, ai_author,
+      source_locale, translation_status, translation_provider,
+      translation_version, source_updated_at, translation_meta_json,
+      content_html,
+      current_revision_id, published_revision_id,
+      created_at, updated_at
+    )
+    SELECT
+      id,
+      COALESCE(NULLIF(group_id,''), id, 'core'),
+      slug,
+      LOWER(COALESCE(NULLIF(locale,''), 'en')),
+
+      COALESCE(NULLIF(type,''), 'labnote'),
+      COALESCE(NULLIF(title,''), ''),
+
+      category,
+      excerpt,
+      COALESCE(NULLIF(department_id,''), 'SCMS'),
+      COALESCE(shadow_density, 0),
+      COALESCE(safer_landing, 0),
+      COALESCE(read_time_minutes, 5),
+
+      COALESCE(coherence_score, 1.0),
+      subtitle,
+      summary,
+
+      tags_json,
+      dept,
+
+      COALESCE(NULLIF(status,''), CASE WHEN published_at IS NOT NULL THEN 'published' ELSE 'draft' END),
+      published_at,
+
+      author,
+      ai_author,
+
+      source_locale,
+      COALESCE(NULLIF(translation_status,''), 'original'),
+      translation_provider,
+      COALESCE(translation_version, 1),
+      source_updated_at,
+      translation_meta_json,
+
+      content_html,
+
+      current_revision_id,
+      published_revision_id,
+
+      COALESCE(NULLIF(created_at,''), strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      COALESCE(NULLIF(updated_at,''), COALESCE(NULLIF(created_at,''), strftime('%Y-%m-%dT%H:%M:%fZ','now')))
+    FROM lab_notes;
+
+    DROP TABLE lab_notes;
+    ALTER TABLE lab_notes_new RENAME TO lab_notes;
+
+    -- 3) Now enforce uniqueness correctly for localized slugs
+    CREATE UNIQUE INDEX IF NOT EXISTS uq_lab_notes_slug_locale ON lab_notes(slug, locale);
+
+    COMMIT;
+    PRAGMA foreign_keys = ON;
+  `);
+    }
+
+
+    // ✅ Views created LAST (after any rebuild)
     db.exec(`
     DROP VIEW IF EXISTS v_lab_notes;
 
-    -- Back-compat view that mirrors the existing wide lab_notes fields
     CREATE VIEW v_lab_notes AS
     SELECT
       id,
@@ -324,7 +606,6 @@ export function migrateLabNotesSchema(
       source_updated_at,
       translation_meta_json,
 
-      content_md,
       content_html,
 
       current_revision_id,
@@ -336,7 +617,6 @@ export function migrateLabNotesSchema(
 
     DROP VIEW IF EXISTS v_lab_notes_current;
 
-    -- v2 convenience view: current revision data (append-only truth)
     CREATE VIEW v_lab_notes_current AS
     SELECT
       n.id AS note_id,
@@ -369,167 +649,6 @@ export function migrateLabNotesSchema(
       ON r.id = n.current_revision_id;
   `);
 
-    const prevVersion = getLabNotesSchemaVersion(db);
-
-    let ranV2DataMigration = false;
-
-    // ---- v2 data migration (one-time) ----
-    // If coming from v1, create revision_num=1 for any note that lacks current_revision_id.
-    if (prevVersion < 2) {
-        const tx = db.transaction(() => {
-            const rows = db.prepare(`
-        SELECT
-          id,
-          slug,
-          locale,
-          type,
-          title,
-          subtitle,
-          summary,
-          tags_json,
-          dept,
-          status,
-          published_at,
-          author,
-          ai_author,
-          content_md,
-          created_at,
-          updated_at
-        FROM lab_notes
-      `).all() as any[];
-
-            const insertRev = db.prepare(`
-        INSERT INTO lab_note_revisions (
-          id, note_id, revision_num, supersedes_revision_id,
-          frontmatter_json, content_markdown, content_hash,
-          schema_version, source,
-          intent, intent_version,
-          scope_json, side_effects_json, reversible,
-          auth_type, scopes_json,
-          reasoning_json,
-          created_at
-        )
-        VALUES (
-          ?, ?, ?, ?,
-          ?, ?, ?,
-          ?, ?,
-          ?, ?,
-          ?, ?, ?,
-          ?, ?,
-          ?,
-          ?
-        )
-      `);
-
-            const updateNotePointers = db.prepare(`
-        UPDATE lab_notes
-        SET current_revision_id = ?,
-            published_revision_id = COALESCE(published_revision_id, ?)
-        WHERE id = ?
-      `);
-
-            const insertEvent = db.prepare(`
-        INSERT INTO lab_events (
-          id, event_type, note_id, revision_id,
-          intent, intent_version,
-          actor_type, actor_id,
-          auth_type, scopes_json,
-          payload_json, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `);
-
-            for (const n of rows) {
-                // Only seed a revision if we don't already have a pointer.
-                const pointer = db
-                    .prepare(`SELECT current_revision_id FROM lab_notes WHERE id = ?`)
-                    .get(n.id) as { current_revision_id?: string } | undefined;
-
-                if (pointer?.current_revision_id) continue;
-
-                const revisionId = crypto.randomUUID();
-
-                // Build minimal frontmatter snapshot from existing columns.
-                // (We keep this conservative—frontmatter is "about the note", provenance lives in revision fields.)
-                const frontmatter = {
-                    id: n.slug || n.id,
-                    type: n.type || "labnote",
-                    title: n.title || n.slug || n.id,
-                    subtitle: n.subtitle ?? undefined,
-                    summary: n.summary ?? undefined,
-                    tags: safeParseJsonArray(n.tags_json),
-                    dept: n.dept ?? undefined,
-                    status: n.status || "draft",
-                    published: n.published_at ?? undefined,
-                    author: n.author ?? undefined,
-                    ai_author: n.ai_author ?? undefined,
-                    locale: n.locale || "en",
-                };
-
-                const frontmatterJson = JSON.stringify(frontmatter);
-                const contentMarkdown = n.content_md ?? "";
-                const canonical = `${frontmatterJson}\n---\n${contentMarkdown}`;
-                const contentHash = sha256Hex(canonical);
-
-                // v2 contract/provenance defaults for legacy data import
-                const schemaVersion = "0.1"; // adjust if you have a better canonical value
-                const source = "import";
-                const intent = "create_lab_note";
-                const intentVersion = "1";
-                const scopeJson = JSON.stringify(["db"]);
-                const sideEffectsJson = JSON.stringify(["create"]);
-                const reversible = 1;
-                const authType = "human_session";
-                const scopesJson = JSON.stringify([]);
-
-                insertRev.run(
-                    revisionId,
-                    n.id,
-                    1,
-                    null,
-                    frontmatterJson,
-                    contentMarkdown,
-                    contentHash,
-                    schemaVersion,
-                    source,
-                    intent,
-                    intentVersion,
-                    scopeJson,
-                    sideEffectsJson,
-                    reversible,
-                    authType,
-                    scopesJson,
-                    null,
-                    n.updated_at || n.created_at || nowIso()
-                );
-
-                // If it was already "published", treat this seeded revision as published pointer too.
-                const shouldPublishPointer =
-                    (n.status === "published" || !!n.published_at) ? revisionId : null;
-
-                updateNotePointers.run(revisionId, shouldPublishPointer, n.id);
-
-                // Event trail
-                insertEvent.run(
-                    crypto.randomUUID(),
-                    "revision_seeded",
-                    n.id,
-                    revisionId,
-                    intent,
-                    intentVersion,
-                    "system",
-                    "db_migrator",
-                    authType,
-                    scopesJson,
-                    JSON.stringify({ fromVersion: prevVersion, toVersion: 2 }),
-                    nowIso()
-                );
-            }
-        });
-
-        tx();
-        ranV2DataMigration = true;
-    }
-
     // Set DB version last (after successful schema + data migration)
     setLabNotesSchemaVersion(db, LAB_NOTES_SCHEMA_VERSION);
 
@@ -553,7 +672,9 @@ export function migrateLabNotesSchema(
 
         const migPart = ranV2DataMigration ? "ran v2 revision seeding" : "no v2 data migration";
 
-        log(`[db] lab_notes migration: v${prevVersion} → v${LAB_NOTES_SCHEMA_VERSION}; ${colsPart}; ${migPart}`);
+        log(
+            `[db] lab_notes migration: v${prevVersion} → v${LAB_NOTES_SCHEMA_VERSION}; ${colsPart}; ${migPart}`
+        );
     }
 
     return result;

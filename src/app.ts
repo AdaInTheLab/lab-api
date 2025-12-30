@@ -1,10 +1,10 @@
 // src/app.ts
+import "./env.js";
 import express from "express";
 import cors from "cors";
 import session from "express-session";
-
 import passport, { configurePassport } from "./auth.js";
-import { resolveDbPath, openDb, bootstrapDb, seedMarkerNote, isDbEmpty } from "./db.js";
+import { resolveDbPath, openDb, bootstrapDb, seedMarkerNote } from "./db.js";
 import { registerHealthRoutes } from "./routes/healthRoutes.js";
 import { registerLabNotesRoutes } from "./routes/labNotesRoutes.js";
 import { registerAdminRoutes } from "./routes/adminRoutes.js";
@@ -18,26 +18,38 @@ import { seedDevDb } from "./seed/devSeed.js";
 export function createApp() {
     const app = express();
 
+    const isTest = env.NODE_ENV === "test";
+    const isProd = env.NODE_ENV === "production";
+    const uiOrigin = env.UI_BASE_URL ?? "http://localhost:5173";
+
+    // If behind a proxy in prod (nginx/cloudflare), this matters for secure cookies
+    app.set("trust proxy", 1);
+
     const dbPath = resolveDbPath();
     const db = openDb(dbPath);
 
     bootstrapDb(db);
 
-    // Auto-seed: only once, only in development, only if empty
-    if (env.NODE_ENV === "development" && isDbEmpty(db)) {
-        console.log("🌱 DB empty in development — auto-seeding…");
+    // Auto-seed: only in development if explicitly enabled
+    if (env.NODE_ENV === "development" && env.DB_SEED === "1") {
+        console.log("🌱 DB seed enabled — seeding dev DB…");
         seedDevDb(db);
     }
 
-    // Optional: marker note is fine, but only after seeding (so it doesn't block "empty" detection)
     seedMarkerNote(db);
 
-    app.use(cors());
+    // ✅ CORS for cookies/sessions across different ports/origins
+    app.use(
+        cors({
+            origin: uiOrigin,
+            credentials: true,
+        })
+    );
+
     app.use(express.json());
 
-    const isTest = env.NODE_ENV === "test";
+    // OpenAPI validator (skip in test)
     const specPath = path.join(process.cwd(), "openapi", "openapi.json");
-
     if (!isTest && fs.existsSync(specPath)) {
         app.use(
             OpenApiValidator.middleware({
@@ -50,22 +62,34 @@ export function createApp() {
         console.warn(`⚠️ OpenAPI spec not found at ${specPath}. Skipping openapi-validator.`);
     }
 
+    // Configure passport strategy (no-op if oauth env missing)
+    configurePassport();
+
+    // Sessions must have a secret
+    const sessionSecret = process.env.SESSION_SECRET;
+    if (!sessionSecret && !isTest) {
+        throw new Error("SESSION_SECRET is not set");
+    }
+
     app.use(
         session({
-            secret: process.env.SESSION_SECRET ?? "default-secret-for-dev",
+            secret: sessionSecret ?? "test-secret", // tests only
             resave: false,
             saveUninitialized: false,
+            cookie: {
+                httpOnly: true,
+                secure: isProd,         // prod HTTPS
+                sameSite: isProd ? "none" : "lax", // ✅ dev ports OK; prod cross-site needs none
+            },
         })
     );
 
-    configurePassport();
     app.use(passport.initialize());
     app.use(passport.session());
 
     registerHealthRoutes(app, dbPath);
     registerLabNotesRoutes(app, db);
     registerAdminRoutes(app, db);
-
     registerOpenApiRoutes(app);
 
     return app;

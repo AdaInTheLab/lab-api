@@ -6,9 +6,11 @@ import { requireAdmin } from "../middleware/requireAdmin.js";
 export function registerOpenApiRoutes(app: Express) {
     const specPath = path.join(process.cwd(), "openapi", "openapi.json");
 
+    // src/routes/openapiRoutes.ts
     if (!fs.existsSync(specPath)) {
-        // Don’t crash the app over docs. Just skip.
-        console.warn(`⚠️ OpenAPI spec not found at ${specPath}. Skipping /openapi.json route.`);
+        if (process.env.NODE_ENV !== "test") {
+            console.warn(`⚠️ OpenAPI spec not found at ${specPath}. Skipping /openapi.json route.`);
+        }
         return;
     }
 

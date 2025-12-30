@@ -18,7 +18,6 @@ export interface LabNoteRecord {
 
     // content
     content_html?: string | null;
-    content_md?: string | null;
 
     // timestamps
     created_at?: string;
