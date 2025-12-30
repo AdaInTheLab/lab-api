@@ -44,7 +44,6 @@ describe("migrateLabNotesSchema", () => {
 
         // a couple key columns should exist
         const cols = getCols(db, "lab_notes");
-        expect(cols).toContain("content_md");
         expect(cols).toContain("translation_status");
         expect(cols).toContain("department_id");
 

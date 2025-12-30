@@ -11,16 +11,35 @@ import { marked } from "marked"; // npm i marked
 
 export function registerLabNotesRoutes(app: any, db: Database.Database) {
     // Public: Lab Notes list (preview)
-    app.get("/lab-notes", (_req: Request, res: Response) => {
+    app.get("/lab-notes", (req: Request, res: Response) => {
         try {
-            const notes = db.prepare(`
-                SELECT
-                    id, slug, title, excerpt, content_html, content_md,
-                    department_id, shadow_density, coherence_score,
-                    safer_landing, read_time_minutes, published_at, category, created_at, updated_at
-                FROM v_lab_notes
-                ORDER BY published_at DESC
-            `).all() as LabNoteRecord[];
+            const locale = String(req.query.locale ?? "en").toLowerCase();
+
+            const sqlAll = `
+      SELECT
+        id, slug, locale, type, status, title, subtitle, summary, excerpt, content_html,
+        department_id, dept, shadow_density, safer_landing, read_time_minutes,
+        published_at, created_at, updated_at
+      FROM v_lab_notes
+      WHERE status != 'archived'
+      ORDER BY published_at DESC
+    `;
+
+            const sqlByLocale = `
+      SELECT
+        id, slug, locale, type, status, title, subtitle, summary, excerpt, content_html,
+        department_id, dept, shadow_density, safer_landing, read_time_minutes,
+        published_at, created_at, updated_at
+      FROM v_lab_notes
+      WHERE locale = ?
+        AND status != 'archived'
+      ORDER BY published_at DESC
+    `;
+
+            const notes = (locale === "all"
+                    ? db.prepare(sqlAll).all()
+                    : db.prepare(sqlByLocale).all(locale)
+            ) as LabNoteRecord[];
 
             const mapped = notes.map((note) => {
                 const tagRows = db
@@ -33,12 +52,12 @@ export function registerLabNotesRoutes(app: any, db: Database.Database) {
             return res.json(mapped);
         } catch (e: any) {
             console.error("GET /lab-notes failed:", e?.message);
-
             if (res.headersSent) return;
             return res.status(500).json({ error: e?.message ?? "unknown" });
         }
     });
-    
+
+
 
     // Public: single Lab Note (detail)
     app.get("/lab-notes/:slug", (req: Request, res: Response) => {
@@ -46,7 +65,7 @@ export function registerLabNotesRoutes(app: any, db: Database.Database) {
 
         const note = db.prepare(`
           SELECT
-            id, slug, title, excerpt, content_html, content_md,
+            id, slug, title, excerpt, content_html, 
             department_id, shadow_density, coherence_score,
             safer_landing, read_time_minutes, published_at, category, created_at, updated_at
           FROM v_lab_notes
@@ -108,7 +127,6 @@ export function registerLabNotesRoutes(app: any, db: Database.Database) {
           SET
             title = ?,
             excerpt = ?,
-            content_md = ?,
             content_html = ?,
             department_id = ?,
             shadow_density = ?,
@@ -137,7 +155,7 @@ export function registerLabNotesRoutes(app: any, db: Database.Database) {
             } else {
                 db.prepare(`
           INSERT INTO lab_notes (
-            id, slug, title, excerpt, content_md, content_html,
+            id, slug, title, excerpt, content_html,
             department_id, shadow_density, safer_landing,
             read_time_minutes, published_at, category,
             created_at, updated_at

@@ -2,6 +2,7 @@
 import Database from "better-sqlite3";
 
 // Keep this small + safe: only runs in development AND only if db is empty
-export function seedDevDb(db: Database.Database) {
-    // no-op by default (or call your seeder here)
+// src/seed/devSeed.js
+export function seedDevDb(_db) {
+    // no-op in tests unless you explicitly allow it
 }
