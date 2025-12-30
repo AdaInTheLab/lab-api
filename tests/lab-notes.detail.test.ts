@@ -1,9 +1,11 @@
 import request from "supertest";
-import app from "../src/index.js";
 
+import { createTestApp, api } from "./helpers/createTestApp.js";
+const { app } = createTestApp();
 describe("Lab Note detail", () => {
-    it("GET /lab-notes/:slug returns a note with contentHtml", async () => {
-        const res = await request(app).get("/lab-notes/api-marker-note");
+    it("GET /api/lab-notes/:slug returns a note with contentHtml", async () => {
+
+        const res = await request(app).get(api("/lab-notes/api-marker-note"));
 
         expect(res.status).toBe(200);
 
