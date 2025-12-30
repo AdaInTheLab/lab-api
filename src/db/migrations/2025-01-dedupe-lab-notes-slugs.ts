@@ -2,7 +2,7 @@
 import type Database from "better-sqlite3";
 
 export function dedupeLabNotesSlugs(db: Database.Database, log = console.log) {
-    log("🧹 Dedupe lab_notes by slug (keep latest)");
+    if (process.env.NODE_ENV !== "test") console.log("🧹 Dedupe...");
 
     db.exec(`
     DELETE FROM lab_notes
