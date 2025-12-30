@@ -4,11 +4,43 @@ import type Database from "better-sqlite3";
 import { randomUUID } from "node:crypto";
 import passport, { ensureAuthenticated, isGithubOAuthEnabled } from "../auth.js";
 
+function normalizeLocale(input: unknown) {
+    const raw = String(input ?? "en").trim().toLowerCase();
+    if (!raw) return "en";
+
+    // Handle common variants: en-US, en_US, en-us -> en
+    const two = raw.split(/[-_]/)[0];
+    if (two === "en" || two === "ko") return two;
+
+    // Fallback: keep first two letters if present
+    if (two.length >= 2) return two.slice(0, 2);
+
+    return "en";
+}
+
 export function registerAdminRoutes(app: any, db: Database.Database) {
     // If you're behind a proxy/SSL terminator, this must be set (and should not be conditional).
-    app.set("trust proxy", 1);
 
-    const UI_BASE_URL = process.env.UI_BASE_URL ?? "http://localhost:5173";
+    const UI_BASE_URL = process.env.UI_BASE_URL ?? "http://localhost:8001";
+
+    app.get("/admin/notes", ensureAuthenticated, (_req: Request, res: Response) => {
+        try {
+            const rows = db.prepare(`
+      SELECT
+        id, slug, title, locale,
+        category, excerpt, content_html,
+        department_id, shadow_density, coherence_score,
+        safer_landing, read_time_minutes, published_at,
+        created_at, updated_at
+      FROM v_lab_notes
+      ORDER BY published_at DESC
+    `).all();
+
+            res.json(rows);
+        } catch (e: any) {
+            res.status(500).json({ error: "Database error", details: String(e?.message ?? e) });
+        }
+    });
 
     // ---------------------------------------------------------------------------
     // Admin: upsert Lab Note (protected)
@@ -34,7 +66,7 @@ export function registerAdminRoutes(app: any, db: Database.Database) {
         if (!slug) return res.status(400).json({ error: "slug is required" });
 
         const noteId = id ?? randomUUID();
-        const noteLocale = String(locale ?? "en").toLowerCase();
+        const noteLocale = normalizeLocale(locale);
 
         const stmt = db.prepare(`
       INSERT INTO lab_notes (
@@ -145,5 +177,7 @@ export function registerAdminRoutes(app: any, db: Database.Database) {
             res.json({ enabled: isGithubOAuthEnabled() });
         });
     }
+    app.get("/auth/github", (_req: any, res: { status: (arg0: number) => { (): any; new(): any; json: { (arg0: { enabled: boolean; }): any; new(): any; }; }; }) => res.status(501).json({ enabled: false }));
+    app.get("/auth/github/callback", (_req: any, res: { redirect: (arg0: string) => any; }) => res.redirect(`${UI_BASE_URL}/login`));
 
 }

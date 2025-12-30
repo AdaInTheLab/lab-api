@@ -1,3 +1,5 @@
+
+
 ## [0.1.2] – 2025-12-29
 
 ### CORE [SCMS] Add v2 Lab Notes schema: append-only revisions + pointers 🧱
