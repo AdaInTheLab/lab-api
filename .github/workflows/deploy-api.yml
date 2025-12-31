@@ -145,6 +145,17 @@ jobs:
             if [ -f ecosystem.config.cjs ]; then
               echo "✅ Using ecosystem.config.cjs"
               pm2 startOrReload ecosystem.config.cjs --env production --update-env
+              echo "== PM2 env for process 0 (look for PORT/HOST) =="
+              pm2 env 0 | egrep -i '^(PORT|HOST|NODE_ENV|BASE_URL|API_PORT)=' || true
+              
+              echo "== What ports is node actually listening on? =="
+              ss -ltnp | grep node || true
+              ss -ltnp | egrep ':(8001|3000|8000|8080)\b' || true
+              
+              echo "== Show the wrapper + ecosystem so we know what it runs =="
+              ls -la ecosystem.config.cjs pm2-start.cjs || true
+              sed -n '1,200p' ecosystem.config.cjs || true
+              sed -n '1,200p' pm2-start.cjs || true
             else
               echo "⚠️ No ecosystem.config.cjs found; fallback"
               pm2 restart lab-api --update-env || pm2 start dist/index.js --name lab-api --update-env
