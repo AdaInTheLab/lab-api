@@ -11,7 +11,8 @@ concurrency:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-
+    env:
+      NODE_ENV: production
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
