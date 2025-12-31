@@ -30,3 +30,5 @@ build/
 
 data/lab.dev.db
 /data/lab.dev.db
+
+ecosystem.config.cjs

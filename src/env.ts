@@ -40,8 +40,12 @@ const rawNodeEnv = process.env.NODE_ENV ?? "development";
 // 🛑 Prevent double-loading (PM2 + import graph safety)
 if (!process.env.__HPL_ENV_LOADED && rawNodeEnv !== "test") {
     // Load base .env
-    dotenv.config({ path: ".env" });
-
+    dotenv.config({ path: path.join(process.cwd(), ".env") });
+    console.log("ENV CHECK:", {
+        NODE_ENV: process.env.NODE_ENV ?? null,
+        cwd: process.cwd(),
+        hasSessionSecret: Boolean(process.env.SESSION_SECRET),
+    });
     // Load env-specific file (override base)
     const envFile = `.env.${rawNodeEnv}`;
     const envPath = path.join(process.cwd(), envFile);
