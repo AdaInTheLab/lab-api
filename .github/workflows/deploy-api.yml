@@ -15,10 +15,10 @@ jobs:
       - name: Checkout repo
         uses: actions/checkout@v4
 
-      - name: 🔍 Reveal NODE_ENV
+      - name: 🔍 Reveal NODE_ENV (runner)
         run: |
-          echo "NODE_ENV=$NODE_ENV"
-          env | grep NODE_ENV || true
+          echo "RUNNER NODE_ENV=$NODE_ENV"
+          env | grep -E '^NODE_ENV=' || true
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -50,12 +50,13 @@ jobs:
           cp -R dist deploy_bundle/dist
           cp package.json package-lock.json deploy_bundle/
 
+          # Include ecosystem file if it's tracked in the repo
           if [ -f ecosystem.config.cjs ]; then
             cp ecosystem.config.cjs deploy_bundle/
-            echo "✅ Included ecosystem.config.cjs"
+            echo "✅ Included ecosystem.config.cjs (from repo)"
           else
-            echo "❌ ecosystem.config.cjs missing"
-            exit 1
+            echo "⚠️ ecosystem.config.cjs not found in repo checkout; continuing without it"
+            ls -la
           fi
 
       - name: Validate deploy secrets (fail fast)
@@ -96,7 +97,6 @@ jobs:
 
           ssh-keyscan -p "$PORT" -H "${{ secrets.SFTP_HOST }}" >> ~/.ssh/known_hosts
 
-          # Upload contents of deploy_bundle into the remote deploy dir
           scp -P "$PORT" -r deploy_bundle/* \
             "${{ secrets.SFTP_USER }}@${{ secrets.SFTP_HOST }}:${{ secrets.SFTP_PATH }}/"
 
@@ -113,11 +113,10 @@ jobs:
 
             echo "User: $(whoami)"
             echo "Host: $(hostname)"
-            echo "PATH(before)=$PATH"
 
-            # Use known-good nvm Node/npm/pm2 paths (as confirmed on your server)
+            # Known-good Node/pm2 path
             export PATH="$HOME/.nvm/versions/node/v20.19.6/bin:$PATH"
-            echo "PATH(after)=$PATH"
+            echo "PATH=$PATH"
 
             command -v node
             command -v npm
@@ -126,31 +125,31 @@ jobs:
             npm -v
             pm2 -v
 
-            grep -E '^NODE_ENV=' .env.production || true
             cd "${{ secrets.SFTP_PATH }}"
+
+            echo "🔍 Reveal NODE_ENV (server shell)"
+            echo "SERVER NODE_ENV=$NODE_ENV"
+            env | grep -E '^NODE_ENV=' || true
 
             echo "== Verify dist on server =="
             test -f dist/index.js || (echo "❌ dist/index.js missing on server" && ls -la && ls -la dist || true && exit 1)
 
-            # Ensure folders exist (for PM2 log/db paths)
-            mkdir -p "${{ secrets.SFTP_PATH }}/logs"
-            mkdir -p "${{ secrets.SFTP_PATH }}/data"
+            mkdir -p logs data
 
-            # Remove any stale/broken JS ecosystem file so PM2 won't accidentally load it
-            rm -f "${{ secrets.SFTP_PATH }}/ecosystem.config.js" || true
+            rm -f ecosystem.config.js || true
 
             echo "== Install production deps =="
             npm ci --omit=dev
 
             echo "== PM2 startOrReload (production) =="
-            if [ -f "${{ secrets.SFTP_PATH }}/ecosystem.config.cjs" ]; then
-              pm2 startOrReload "${{ secrets.SFTP_PATH }}/ecosystem.config.cjs" --env production --update-env
+            if [ -f ecosystem.config.cjs ]; then
+              echo "✅ Using ecosystem.config.cjs"
+              pm2 startOrReload ecosystem.config.cjs --env production --update-env
             else
-              echo "No ecosystem.config.cjs found; fallback"
+              echo "⚠️ No ecosystem.config.cjs found; fallback"
               pm2 restart lab-api --update-env || pm2 start dist/index.js --name lab-api --update-env
             fi
 
-            echo "== PM2 save/list =="
             pm2 save
             pm2 list
 
@@ -163,13 +162,10 @@ jobs:
               echo "…not up yet (attempt $i/10). waiting 1s"
               sleep 1
             done
-            
+
             echo "❌ Health check failed after retries"
-            echo "== PM2 status =="
             pm2 list || true
-            echo "== PM2 describe =="
             pm2 describe lab-api || true
-            echo "== PM2 last logs =="
             pm2 logs lab-api --err --lines 200 --nostream || true
             pm2 logs lab-api --out --lines 200 --nostream || true
             exit 1
@@ -185,7 +181,5 @@ jobs:
           script_stop: false
           script: |
             export PATH="$HOME/.nvm/versions/node/v20.19.6/bin:$PATH"
-            echo "== pm2 list =="
             pm2 list || true
-            echo "== lab-api out (last 120) =="
             pm2 logs lab-api --out --lines 120 --nostream || true
