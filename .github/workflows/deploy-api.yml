@@ -154,15 +154,20 @@ jobs:
             pm2 list
 
             echo "== Health check (local) =="
-            for i in 1 2 3 4 5 6 7 8 9 10; do
-              if curl -fsS "http://127.0.0.1:8001/health" >/dev/null; then
-                echo "✅ Health check OK (/health)"
-                exit 0
-              fi
-              echo "…not up yet (attempt $i/10). waiting 1s"
-              sleep 1
-            done
-
+              for i in 1 2 3 4 5 6 7 8 9 10; do
+                code="$(curl -s -o /tmp/health.txt -w "%{http_code}" "http://127.0.0.1:8001/health" || true)"
+                if [ "$code" = "200" ]; then
+                  echo "✅ Health check OK (/health)"
+                  cat /tmp/health.txt || true
+                  exit 0
+                fi
+                echo "…health not ready (attempt $i/10) http=$code"
+                echo "--- body ---"
+                cat /tmp/health.txt || true
+                echo "------------"
+                sleep 1
+              done
+              
             echo "❌ Health check failed after retries"
             pm2 list || true
             pm2 describe lab-api || true
