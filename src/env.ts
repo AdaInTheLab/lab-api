@@ -37,7 +37,8 @@ class EnvError extends Error {
 // ── Load dotenv early ───────────────────────────────────────
 const rawNodeEnv = process.env.NODE_ENV ?? "development";
 
-if (rawNodeEnv !== "test") {
+// 🛑 Prevent double-loading (PM2 + import graph safety)
+if (!process.env.__HPL_ENV_LOADED && rawNodeEnv !== "test") {
     // Load base .env
     dotenv.config({ path: ".env" });
 
@@ -47,6 +48,9 @@ if (rawNodeEnv !== "test") {
     if (fs.existsSync(envPath)) {
         dotenv.config({ path: envFile, override: true });
     }
+
+    // 🔒 Mark as loaded
+    process.env.__HPL_ENV_LOADED = "true";
 }
 
 // ── Normalizers ────────────────────────────────────────────
