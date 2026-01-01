@@ -1,4 +1,23 @@
+## v0.2.0 — Ledger Era + Canonical API Base
 
+### Breaking
+- API base is now `https://api.thehumanpatternlab.com`.
+- Removed `/api` path prefix from canonical routes.
+    - Example: `/lab-notes` (new) instead of `/api/lab-notes` (old).
+- Main site legacy `/api/*` routes are deprecated and redirect to the API subdomain.
+
+### Database
+- Refactored persistence to the **Ledger** model.
+    - Ledger becomes the canonical source of truth for note storage and mutation history.
+    - Improves auditability and enables future CLI automation workflows.
+
+### Notes API
+- Lab Notes endpoints continue to support list + detail retrieval while backed by the Ledger model.
+- Response shape remains compatible with existing UI normalization (fields unchanged unless noted).
+
+### Ops / Deployment
+- Production routing standardized: website on `thehumanpatternlab.com`, API on `api.thehumanpatternlab.com`.
+- Reduced ambiguity between static site routes and API routes.
 
 ## [0.1.2] – 2025-12-29
 
