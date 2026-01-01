@@ -226,7 +226,9 @@ export function createApp() {
     registerLabNotesRoutes(api, db);
 
 // MOUNT THE ROUTER (this is what makes routes actually exist)
-    app.use("/api", api);
+    app.use("/", api);     // ✅ canonical
+    app.use("/api", api);  // 🧯 legacy alias (temporary)
+
 
 // Non-API routes can still live at root if you want:
     registerOpenApiRoutes(app);

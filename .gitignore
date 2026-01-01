@@ -32,3 +32,8 @@ data/lab.dev.db
 /data/lab.dev.db
 
 ecosystem.config.cjs
+/.htaccess
+/passenger-start.mjs
+/passenger-start.cjs
+/cloudflared.yml
+/config.yml
