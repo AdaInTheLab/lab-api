@@ -12,6 +12,12 @@ export function api(path) {
 }
 
 export function createTestApp() {
+    // ✅ Make admin auth "configured" in tests so unauthenticated requests return 401
+    // (otherwise requireAdmin returns 403: "Admin not configured")
+    if (!(process.env.ADMIN_GITHUB_USERS ?? "").trim()) {
+        process.env.ADMIN_GITHUB_USERS = "ada";
+    }
+
     const app = express();
     app.use(express.json());
 
@@ -20,7 +26,9 @@ export function createTestApp() {
     registerHealthRoutes(app, db);
     registerLabNotesRoutes(app, db);
     registerAdminRoutes(app, db);
+
     bootstrapDb(db);
     seedMarkerNote(db);
+
     return { app, db };
 }
