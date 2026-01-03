@@ -154,8 +154,6 @@ jobs:
               
               echo "== Show the wrapper + ecosystem so we know what it runs =="
               ls -la ecosystem.config.cjs pm2-start.cjs || true
-              sed -n '1,200p' ecosystem.config.cjs || true
-              sed -n '1,200p' pm2-start.cjs || true
             else
               echo "⚠️ No ecosystem.config.cjs found; fallback"
               pm2 restart lab-api --update-env || pm2 start dist/index.js --name lab-api --update-env
@@ -168,15 +166,15 @@ jobs:
             ss -ltnp | grep ':8001' || true
             
             echo "== Try both IPv4 + IPv6 =="
-            curl -v --max-time 2 "http://127.0.0.1:8001/api/health" || true
-            curl -v --max-time 2 "http://[::1]:8001/api/health" || true
-            curl -v --max-time 2 "http://localhost:8001/api/health" || true
+            curl -v --max-time 2 "http://127.0.0.1:8001/health" || true
+            curl -v --max-time 2 "http://[::1]:8001/health" || true
+            curl -v --max-time 2 "http://localhost:8001/health" || true
 
             echo "== Health check (local) =="
               for i in 1 2 3 4 5 6 7 8 9 10; do
-                code="$(curl -s -o /tmp/health.txt -w "%{http_code}" "http://127.0.0.1:8001/api/health" || true)"
+                code="$(curl -s -o /tmp/health.txt -w "%{http_code}" "http://127.0.0.1:8001/health" || true)"
                 if [ "$code" = "200" ]; then
-                  echo "✅ Health check OK (/api/health)"
+                  echo "✅ Health check OK (/health)"
                   cat /tmp/health.txt || true
                   exit 0
                 fi
