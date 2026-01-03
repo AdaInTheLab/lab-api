@@ -96,6 +96,14 @@ function buildAdminAllowlist(): Set<string> {
  * - 403: authenticated but not authorized OR allowlist not configured (prod)
  */
 export const requireAdmin = (req: Request, res: Response, next: NextFunction) => {
+    // ✅ DEV BYPASS (explicit opt-in, never works in production)
+    if (
+        process.env.NODE_ENV !== "production" &&
+        process.env.ADMIN_DEV_BYPASS === "true"
+    ) {
+        return next();
+    }
+
     const allow = buildAdminAllowlist();
 
     // Fail-closed when misconfigured (production only).

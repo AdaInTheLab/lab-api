@@ -4,6 +4,7 @@ import type Database from "better-sqlite3";
 import type { LabNoteRecord, TagResult } from "../types/labNotes.js";
 import type { UpsertBody } from "../types/UpsertBody.js"
 import { mapToLabNotePreview, mapToLabNoteView } from "../mappers/labNotesMapper.js";
+import { normalizeLocale } from "../lib/helpers.js"
 
 // OPTIONAL: markdown -> html (pick one implementation)
 // If you already have a markdown renderer elsewhere in the API, use that instead.
@@ -13,7 +14,21 @@ export function registerLabNotesRoutes(app: any, db: Database.Database) {
     // Public: Lab Notes list (preview)
     app.get("/lab-notes", (req: Request, res: Response) => {
         try {
-            const locale = String(req.query.locale ?? "en").toLowerCase();
+            const baseLocale = (input: unknown) => {
+                const raw = String(input ?? "en").trim().toLowerCase();
+                if (!raw) return "en";
+                const two = raw.split(/[-_]/)[0];
+                return two === "all" ? "all" : (two || "en");
+            };
+
+            const locale = normalizeLocale(req.query.locale);
+
+            const orderBy = `
+      ORDER BY
+        CASE WHEN published_at IS NULL OR published_at = '' THEN 1 ELSE 0 END,
+        published_at DESC,
+        updated_at DESC
+    `;
 
             const sqlAll = `
       SELECT
@@ -22,7 +37,7 @@ export function registerLabNotesRoutes(app: any, db: Database.Database) {
         published_at, created_at, updated_at
       FROM v_lab_notes
       WHERE status != 'archived'
-      ORDER BY published_at DESC
+      ${orderBy}
     `;
 
             const sqlByLocale = `
@@ -33,7 +48,7 @@ export function registerLabNotesRoutes(app: any, db: Database.Database) {
       FROM v_lab_notes
       WHERE locale = ?
         AND status != 'archived'
-      ORDER BY published_at DESC
+      ${orderBy}
     `;
 
             const notes = (locale === "all"
@@ -56,8 +71,6 @@ export function registerLabNotesRoutes(app: any, db: Database.Database) {
             return res.status(500).json({ error: e?.message ?? "unknown" });
         }
     });
-
-
 
     // Public: single Lab Note (detail)
     app.get("/lab-notes/:slug", (req: Request, res: Response) => {
@@ -93,16 +106,35 @@ export function registerLabNotesRoutes(app: any, db: Database.Database) {
 
         const slug = body.slug.trim();
         const title = body.title.trim();
-        const markdown = body.markdown;
+        const markdown = String(body.markdown);
         const html = marked.parse(markdown) as string;
 
+        // ✅ locale must match your schema + UI behavior
+        const locale = normalizeLocale((body as any).locale);
+
+        // tags + metadata
         const tags = body.tags ?? [];
-        const department_id = body.department_id ?? "SCMS"; // choose your default
+        const department_id = body.department_id ?? "SCMS";
+        const dept = (body as any).dept ?? null;
+
         const shadow_density = body.shadow_density ?? 0;
         const safer_landing = body.safer_landing ? 1 : 0;
-        const read_time_minutes = body.read_time_minutes ?? null;
-        const published_at = body.published_at ?? null;
-        const category = body.category ?? (body as any).type ?? null; // map your frontmatter 'type' if you want
+        const read_time_minutes = body.read_time_minutes ?? 5;
+
+        // type/status (support your taxonomy)
+        const type = ((body as any).type ?? "labnote");
+        const status =
+            ((body as any).status ?? ((body.published_at ?? "").trim() ? "published" : "draft"));
+
+        // published date only when published
+        const published_at =
+            status === "published"
+                ? ((body.published_at ?? "").trim() || new Date().toISOString().slice(0, 10))
+                : null;
+
+        // summary/excerpt
+        const summary = (body as any).summary ?? null;
+
         const excerpt =
             body.excerpt ??
             markdown
@@ -111,76 +143,98 @@ export function registerLabNotesRoutes(app: any, db: Database.Database) {
                 .trim()
                 .slice(0, 220);
 
-        // Check for existing note
-        const existing = db
-            .prepare("SELECT id FROM lab_notes WHERE slug = ?")
-            .get(slug) as { id: string } | undefined;
+        // category: keep if you still use it, otherwise null
+        const category = body.category ?? null;
 
-        const now = new Date().toISOString();
+        // ✅ check existing by (slug, locale)
+        const existing = db
+            .prepare("SELECT id FROM lab_notes WHERE slug = ? AND locale = ?")
+            .get(slug, locale) as { id: string } | undefined;
+
         const noteId = existing?.id ?? crypto.randomUUID();
 
-        // Transaction: upsert note + tags
         const tx = db.transaction(() => {
             if (existing) {
                 db.prepare(`
-          UPDATE lab_notes
-          SET
-            title = ?,
-            excerpt = ?,
-            content_html = ?,
-            department_id = ?,
-            shadow_density = ?,
-            safer_landing = ?,
-            read_time_minutes = ?,
-            published_at = COALESCE(?, published_at),
-            category = ?,
-            updated_at = ?
-          WHERE slug = ?
-        `).run(
+        UPDATE lab_notes
+        SET
+          title = ?,
+          excerpt = ?,
+          summary = ?,
+          content_html = ?,
+          department_id = ?,
+          dept = ?,
+          type = ?,
+          status = ?,
+          shadow_density = ?,
+          safer_landing = ?,
+          read_time_minutes = ?,
+          published_at = ?,
+          category = ?,
+          updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
+        WHERE slug = ? AND locale = ?
+      `).run(
                     title,
                     excerpt,
-                    markdown,
-                    html,
+                    summary,
+                    html,              // ✅ store HTML in content_html
                     department_id,
+                    dept,
+                    type,
+                    status,
                     shadow_density,
                     safer_landing,
                     read_time_minutes,
                     published_at,
                     category,
-                    now,
-                    slug
+                    slug,
+                    locale
                 );
 
                 db.prepare("DELETE FROM lab_note_tags WHERE note_id = ?").run(noteId);
             } else {
                 db.prepare(`
-          INSERT INTO lab_notes (
-            id, slug, title, excerpt, content_html,
-            department_id, shadow_density, safer_landing,
-            read_time_minutes, published_at, category,
-            created_at, updated_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `).run(
+        INSERT INTO lab_notes (
+          id, group_id, slug, locale,
+          type, status, title,
+          category, excerpt, summary, content_html,
+          department_id, dept, shadow_density, safer_landing,
+          read_time_minutes, published_at,
+          created_at, updated_at
+        ) VALUES (
+          ?, ?, ?, ?,
+          ?, ?, ?,
+          ?, ?, ?, ?,
+          ?, ?, ?, ?,
+          ?, ?,
+          strftime('%Y-%m-%dT%H:%M:%fZ','now'),
+          strftime('%Y-%m-%dT%H:%M:%fZ','now')
+        )
+      `).run(
                     noteId,
+                    noteId,            // group_id defaulting to noteId keeps v2 happy
                     slug,
+                    locale,
+                    type,
+                    status,
                     title,
+                    category,
                     excerpt,
-                    markdown,
-                    html,
+                    summary,
+                    html,              // ✅ store HTML
                     department_id,
+                    dept,
                     shadow_density,
                     safer_landing,
                     read_time_minutes,
-                    published_at,
-                    category,
-                    now,
-                    now
+                    published_at
                 );
             }
 
             const insertTag = db.prepare(
-                "INSERT INTO lab_note_tags (note_id, tag) VALUES (?, ?)"
+                "INSERT OR IGNORE INTO lab_note_tags (note_id, tag) VALUES (?, ?)"
             );
+
             for (const t of tags) {
                 const tag = String(t).trim();
                 if (tag) insertTag.run(noteId, tag);
@@ -189,10 +243,17 @@ export function registerLabNotesRoutes(app: any, db: Database.Database) {
 
         try {
             tx();
-            return res.json({ ok: true, slug, action: existing ? "updated" : "created" });
+            return res.json({
+                ok: true,
+                slug,
+                locale,
+                id: noteId,
+                action: existing ? "updated" : "created",
+            });
         } catch (e: any) {
             return res.status(500).json({ ok: false, error: e?.message ?? "upsert failed" });
         }
     });
+
 
 }

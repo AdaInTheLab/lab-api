@@ -4,18 +4,55 @@ function deriveStatus(published: string): "published" | "draft" {
     return published ? "published" : "draft";
 }
 
-function deriveType(note: LabNoteRecord): "labnote" | "paper" | "memo" {
-    // If you already store note.type, prefer it:
-    if (note.type) return note.type;
+function normalizeStatus(s?: "published" | "draft" | "archived" | null | undefined, published?: string): "published" | "draft" | "archived" {
+    const v = (s ?? "").toLowerCase();
+    if (v === "published" || v === "draft" || v === "archived") return v;
+    return deriveStatus(published ?? "");
+}
+type LabNoteType = "labnote" | "paper" | "memo" | "lore" | "weather";
+const ALLOWED_NOTE_TYPES: ReadonlySet<LabNoteType> = new Set([
+    "labnote",
+    "paper",
+    "memo",
+    "lore",
+    "weather",
+]);
+
+function deriveType(note: LabNoteRecord): LabNoteType {
+    // Prefer stored note.type if present
+    const raw = (note.type ?? "").toLowerCase() as LabNoteType;
+
+    if (raw && ALLOWED_NOTE_TYPES.has(raw)) return raw;
 
     // Optional: derive from category if it has meaning
     if (note.category === "paper") return "paper";
     if (note.category === "memo") return "memo";
+    if (note.category === "lore") return "lore";
+    if (note.category === "weather") return "weather";
 
     return "labnote";
 }
-
-export function mapToLabNoteView(note: LabNoteRecord, tags: string[]): LabNoteView {
+export function mapToLabNoteView(note: LabNoteRecord, tags: string[]): {
+    id: string;
+    slug: string;
+    title: string;
+    subtitle: string | undefined;
+    summary: string;
+    contentHtml: string;
+    published: string;
+    status: "published" | "draft" | "archived";
+    type: "labnote" | "paper" | "memo" | "lore" | "weather";
+    dept: string | undefined;
+    locale: string;
+    author: { kind: "human" | "ai" | "hybrid" } | undefined;
+    department_id: string;
+    shadow_density: number;
+    safer_landing: boolean;
+    tags: string[];
+    readingTime: number;
+    created_at: string | undefined;
+    updated_at: string | undefined
+} {
     const published = note.published_at ?? "";
 
     return {
@@ -29,7 +66,7 @@ export function mapToLabNoteView(note: LabNoteRecord, tags: string[]): LabNoteVi
         contentHtml: note.content_html?.trim() || "<p>Content pending migration.</p>",
         published,
 
-        status: note.status ?? deriveStatus(published),
+        status: normalizeStatus(note.status, published),
         type: deriveType(note),
 
         dept: note.dept ?? undefined,
@@ -55,7 +92,27 @@ export function mapToLabNoteView(note: LabNoteRecord, tags: string[]): LabNoteVi
     };
 }
 
-export function mapToLabNotePreview(note: LabNoteRecord, tags: string[]): LabNoteView {
+export function mapToLabNotePreview(note: LabNoteRecord, tags: string[]): {
+    id: string;
+    slug: string;
+    title: string;
+    subtitle: string | undefined;
+    summary: string;
+    contentHtml: string;
+    published: string;
+    status: "published" | "draft" | "archived";
+    type: "labnote" | "paper" | "memo" | "lore" | "weather";
+    dept: string | undefined;
+    locale: string;
+    author: { kind: "human" | "ai" | "hybrid" } | undefined;
+    department_id: string;
+    shadow_density: number;
+    safer_landing: boolean;
+    tags: string[];
+    readingTime: number;
+    created_at: string | undefined;
+    updated_at: string | undefined
+} {
     const published = note.published_at ?? "";
 
     return {
@@ -69,7 +126,7 @@ export function mapToLabNotePreview(note: LabNoteRecord, tags: string[]): LabNot
         contentHtml: "",
         published,
 
-        status: note.status ?? deriveStatus(published),
+        status: normalizeStatus(note.status, published),
         type: deriveType(note),
 
         dept: note.dept ?? undefined,
