@@ -1,35 +1,43 @@
 // src/types/labNotes.ts
 
+export type LabNoteType = "labnote" | "paper" | "memo" | "lore" | "weather";
+export type LabNoteStatus = "published" | "draft" | "archived";
+
+export const ALLOWED_NOTE_TYPES: ReadonlySet<LabNoteType> = new Set([
+    "labnote",
+    "paper",
+    "memo",
+    "lore",
+    "weather",
+]);
+
 export interface LabNoteRecord {
     id: string;
     title: string;
     slug: string;
 
-    category?: string;          // reserved; not yet part of public contract
+    category?: string;
     excerpt?: string;
 
     department_id?: string;
     shadow_density?: number;
     coherence_score?: number;
-    safer_landing?: number;     // 0/1 in sqlite
+    safer_landing?: number;
 
     read_time_minutes?: number;
     published_at?: string;
 
-    // content
     content_html?: string | null;
 
-    // timestamps
     created_at?: string;
     updated_at?: string;
 
-    // 🆕 optional future fields (safe to add now)
     subtitle?: string | null;
 
-    type?: "labnote" | "paper" | "memo" | null;
-    status?: "published" | "draft" | "archived" | null;
+    type?: LabNoteType | null;
+    status?: LabNoteStatus | null;
 
-    dept?: string | null;       // human readable label if you store it
+    dept?: string | null;
     locale?: string | null;
 
     author_kind?: "human" | "ai" | "hybrid" | null;
@@ -37,12 +45,10 @@ export interface LabNoteRecord {
     author_id?: string | null;
 }
 
-
 export interface TagResult {
     tag: string;
 }
 
-// What the frontend expects (your canonical UI contract)
 export interface LabNoteView {
     id: string;
     slug: string;
@@ -54,9 +60,8 @@ export interface LabNoteView {
     contentHtml: string;
     published: string;
 
-    // 🆕 (recommended)
-    status?: "published" | "draft" | "archived";
-    type?: "labnote" | "paper" | "memo";
+    status?: LabNoteStatus;
+    type?: LabNoteType;
     dept?: string;
     locale?: string;
 
@@ -72,8 +77,6 @@ export interface LabNoteView {
     tags: string[];
     readingTime: number;
 
-    // optional but nice if you want them later
     created_at?: string;
     updated_at?: string;
 }
-
