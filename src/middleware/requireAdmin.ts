@@ -1,5 +1,5 @@
 import type { Request, Response, NextFunction } from "express";
-import { getGithubLogin } from "auth.js"
+import { getGithubLogin } from "../auth.js";
 
 function getAuthToken(req: Request): string | null {
     const h = req.header("authorization");
