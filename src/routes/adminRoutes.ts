@@ -3,7 +3,7 @@ import type { Request, Response } from "express";
 import type Database from "better-sqlite3";
 import { randomUUID } from "node:crypto";
 import passport, { requireAdmin, isGithubOAuthEnabled } from "../auth.js";
-import { normalizeLocale } from "@/lib/helpers.js";
+import { normalizeLocale } from "../lib/helpers.js";
 
 
 export function registerAdminRoutes(app: any, db: Database.Database) {
