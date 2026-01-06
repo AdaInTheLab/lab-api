@@ -47,12 +47,22 @@ export function configurePassport() {
         new GitHubStrategy(
             { clientID, clientSecret, callbackURL },
             (_accessToken: any, _refreshToken: any, profile: any, done: any) => {
-                const allowed = process.env.ALLOWED_GITHUB_USERNAME;
-                if (allowed && profile?.username !== allowed) return done(null, false);
+                const login = String(profile?.username ?? "").trim().toLowerCase();
+
+                // If no username, fail
+                if (!login) return done(null, false);
+
+                // Reuse the same allowlist rules as requireAdmin
+                const allow = buildAdminAllowlist();
+
+                // If allowlist configured, enforce it
+                if (allow.size > 0 && !allow.has(login)) return done(null, false);
+
                 return done(null, profile);
             }
         )
     );
+
 
     passport.serializeUser((user: any, done) => done(null, user));
     passport.deserializeUser((user: any, done) => done(null, user));
