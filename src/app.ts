@@ -219,7 +219,8 @@ export function createApp() {
 
     //TODO: THIS IS TEMP
     app.get("/auth/cookie-test", (req, res) => {
-        req.session.cookie_test = Date.now();
+        (req.session as any).cookie_test = Date.now();
+
         res.json({
             ok: true,
             wrote: true,
