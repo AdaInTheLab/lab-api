@@ -1,8 +1,23 @@
 // src/db/migrateLabNotes.ts
 import Database from "better-sqlite3";
 import crypto from "crypto";
+/**
+ * migrateLabNotesSchema
+ *
+ * Responsibilities:
+ * - Ensure lab_notes is an identity + pointer table
+ * - Ensure lab_note_revisions is the sole content truth
+ * - Ensure views NEVER treat lab_notes.content_html as authoritative
+ *
+ * Non-responsibilities:
+ * - Rendering markdown to HTML
+ * - Business logic for publish/unpublish
+ * - Auth decisions
+ *
+ * If content appears stale or "reverts", check views FIRST.
+ */
 
-export const LAB_NOTES_SCHEMA_VERSION = 8;
+export const LAB_NOTES_SCHEMA_VERSION = 9;
 
 function setLabNotesSchemaVersion(db: Database.Database, version: number) {
     const cur = db
@@ -296,35 +311,15 @@ export function migrateLabNotesSchema(
 
     let ranV2DataMigration = false;
 
-// ---- v2 data migration (one-time) ----
+    // ---- v2 data migration (one-time) ----
     if (prevVersion < 2) {
-        let seededCount = 0;
-
-        const tx = db.transaction(() => {
-            const rows = db.prepare(`
-      SELECT id, slug, locale, type, title, subtitle, summary, tags_json, dept,
-             status, published_at, author, ai_author, created_at, updated_at
-      FROM lab_notes
-    `).all() as any[];
-
-            // ...prepare statements...
-
-            for (const n of rows) {
-                const pointer = db
-                    .prepare(`SELECT current_revision_id FROM lab_notes WHERE id = ?`)
-                    .get(n.id) as { current_revision_id?: string } | undefined;
-
-                if (pointer?.current_revision_id) continue;
-
-                // ...insert revision, update pointers, insert event...
-                seededCount++;
-            }
-        });
-
-        tx();
-        ranV2DataMigration = seededCount > 0;
+        // ---- v2 data migration (legacy installs only) ----
+        // NOTE:
+        // This migration was used during early v2 rollout.
+        // New installs and modern DBs rely on seedMarkerNote + admin writes.
+        // Intentionally left as a no-op placeholder for schema history clarity.
+                let ranV2DataMigration = false;
     }
-
 
     // ---- drop legacy markdown column (table rebuild) ----
     if (prevVersion < 7) {
@@ -569,89 +564,130 @@ export function migrateLabNotesSchema(
     }
 
 
+
+    // ⚠️ WARNING ⚠️
+    // If v_lab_notes ever reads lab_notes.content_html as the primary content source,
+    // the system will desync (admin writes one model, readers consume another).
+    // Always join through lab_note_revisions.
+
+
     // ✅ Views created LAST (after any rebuild)
+    // IMPORTANT:
+    // These views MUST be ledger-first.
+    // lab_notes.content_html is legacy-only and must never be treated as truth.
     db.exec(`
-    DROP VIEW IF EXISTS v_lab_notes;
+          DROP VIEW IF EXISTS v_lab_notes;
+          DROP VIEW IF EXISTS v_lab_notes_current;
+        
+          -- Canonical effective view
+          -- Used by admin lists, detail views, and public reads (with filtering).
+          CREATE VIEW v_lab_notes AS
+          SELECT
+            n.id,
+            n.group_id,
+            n.slug,
+            n.locale,
+            n.type,
+            n.title,
+        
+            n.category,
+            n.excerpt,
+            n.department_id,
+            n.shadow_density,
+            n.safer_landing,
+            n.read_time_minutes,
+            n.coherence_score,
+            n.subtitle,
+            n.summary,
+            n.tags_json,
+            n.dept,
+        
+            n.status,
+            n.published_at,
+            n.author,
+            n.ai_author,
+        
+            n.source_locale,
+            n.translation_status,
+            n.translation_provider,
+            n.translation_version,
+            n.source_updated_at,
+            n.translation_meta_json,
+        
+            -- Ledger-first content resolution:
+            -- 1) Published revision if published
+            -- 2) Current draft revision
+            -- 3) Any available revision
+            -- 4) Legacy content_html (last-resort fallback)
+            COALESCE(
+              CASE
+                WHEN n.status = 'published' THEN pub.content_markdown
+                ELSE cur.content_markdown
+              END,
+              cur.content_markdown,
+              pub.content_markdown,
+              n.content_html
+            ) AS content_markdown,
+        
+            -- Legacy passthrough (do not rely on this)
+            n.content_html,
+        
+            n.current_revision_id,
+            n.published_revision_id,
+        
+            n.created_at,
+            n.updated_at
+        
+          FROM lab_notes n
+          LEFT JOIN lab_note_revisions cur
+            ON cur.id = n.current_revision_id
+          LEFT JOIN lab_note_revisions pub
+            ON pub.id = n.published_revision_id
+          ;
+        
+          -- Admin-only "current draft truth" view
+          CREATE VIEW v_lab_notes_current AS
+          SELECT
+            n.id AS note_id,
+            n.slug,
+            n.locale,
+            n.title,
+            n.status,
+            n.published_at,
+            n.author,
+            n.ai_author,
+        
+            n.current_revision_id,
+            n.published_revision_id,
+        
+            r.revision_num,
+            r.schema_version,
+            r.source,
+            r.intent,
+            r.intent_version,
+            r.scope_json,
+            r.side_effects_json,
+            r.reversible,
+            r.auth_type,
+            r.scopes_json,
+            r.frontmatter_json,
+            r.content_markdown,
+            r.content_hash,
+            r.created_at AS revision_created_at,
+        
+            n.created_at,
+            n.updated_at
+        
+          FROM lab_notes n
+          LEFT JOIN lab_note_revisions r
+            ON r.id = n.current_revision_id
+          ;
+`);
 
-    CREATE VIEW v_lab_notes AS
-    SELECT
-      id,
-      group_id,
-      slug,
-      locale,
-      type,
-      title,
-
-      category,
-      excerpt,
-      department_id,
-      shadow_density,
-      safer_landing,
-      read_time_minutes,
-      coherence_score,
-      subtitle,
-      summary,
-      tags_json,
-      dept,
-
-      status,
-      published_at,
-      author,
-      ai_author,
-
-      source_locale,
-      translation_status,
-      translation_provider,
-      translation_version,
-      source_updated_at,
-      translation_meta_json,
-
-      content_html,
-
-      current_revision_id,
-      published_revision_id,
-
-      created_at,
-      updated_at
-    FROM lab_notes;
-
-    DROP VIEW IF EXISTS v_lab_notes_current;
-
-    CREATE VIEW v_lab_notes_current AS
-    SELECT
-      n.id AS note_id,
-      n.slug,
-      n.locale,
-      n.title,
-      n.status,
-      n.author,
-      n.ai_author,
-      n.current_revision_id,
-      n.published_revision_id,
-      r.revision_num,
-      r.schema_version,
-      r.source,
-      r.intent,
-      r.intent_version,
-      r.scope_json,
-      r.side_effects_json,
-      r.reversible,
-      r.auth_type,
-      r.scopes_json,
-      r.frontmatter_json,
-      r.content_markdown,
-      r.content_hash,
-      r.created_at AS revision_created_at,
-      n.created_at,
-      n.updated_at
-    FROM lab_notes n
-    LEFT JOIN lab_note_revisions r
-      ON r.id = n.current_revision_id;
-  `);
 
     // Set DB version last (after successful schema + data migration)
     setLabNotesSchemaVersion(db, LAB_NOTES_SCHEMA_VERSION);
-
+    db.pragma("foreign_keys = ON");
     const result: MigrationResult = {
         addedColumns,
         createdFreshTable: !hadLabNotesTable,

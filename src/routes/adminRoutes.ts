@@ -3,7 +3,7 @@ import type { Request, Response } from "express";
 import type Database from "better-sqlite3";
 import { randomUUID } from "node:crypto";
 import passport, { requireAdmin, isGithubOAuthEnabled } from "../auth.js";
-import { normalizeLocale } from "../lib/helpers.js";
+import { normalizeLocale, sha256Hex } from "../lib/helpers.js";
 
 export function registerAdminRoutes(app: any, db: Database.Database) {
     // Must match your UI origin exactly (no trailing slash)
@@ -17,27 +17,67 @@ export function registerAdminRoutes(app: any, db: Database.Database) {
             const rows = db
                 .prepare(
                     `
-          SELECT
-            id, slug, title, locale,
-            type, status, dept,
-            category, excerpt, summary,
-            content_html,
-            department_id, shadow_density, coherence_score,
-            safer_landing, read_time_minutes, published_at,
-            created_at, updated_at
-          FROM v_lab_notes
-          ORDER BY published_at DESC, updated_at DESC
-        `
+                        SELECT
+                            id, slug, title, locale,
+                            type, status, dept,
+                            category, excerpt, summary,
+                            department_id, shadow_density, coherence_score,
+                            safer_landing, read_time_minutes,
+                            published_at,
+                            created_at, updated_at
+                        FROM v_lab_notes
+                        ORDER BY
+                            CASE WHEN status = 'published' THEN 0 ELSE 1 END,
+                            published_at DESC,
+                            updated_at DESC
+                    `
                 )
                 .all();
 
             return res.json(rows);
         } catch (e: any) {
-            return res
-                .status(500)
-                .json({ error: "Database error", details: String(e?.message ?? e) });
+            return res.status(500).json({ error: "Database error", details: String(e?.message ?? e) });
         }
     });
+
+
+    // ---------------------------------------------------------------------------
+    // Admin: single Lab Note (protected)
+    // ---------------------------------------------------------------------------
+    app.get("/admin/notes/:slug", requireAdmin, (req: Request, res: Response) => {
+        try {
+            const slug = String(req.params.slug ?? "").trim();
+            const locale = normalizeLocale(String(req.query.locale ?? "en"));
+
+            if (!slug) return res.status(400).json({ error: "slug is required" });
+
+            const row = db
+                .prepare(
+                    `
+        SELECT
+          id, slug, title, locale,
+          type, status, dept,
+          category, excerpt, summary,
+          content_markdown,
+          department_id, shadow_density, coherence_score,
+          safer_landing, read_time_minutes,
+          published_at,
+          created_at, updated_at
+        FROM v_lab_notes
+        WHERE slug = ? AND locale = ?
+        LIMIT 1
+      `
+                )
+                .get(slug, locale);
+
+            if (!row) return res.status(404).json({ error: "Not found" });
+            return res.json(row);
+        } catch (e: any) {
+            return res.status(500).json({ error: "Database error", details: String(e?.message ?? e) });
+        }
+    });
+
+
 
     // ---------------------------------------------------------------------------
     // Admin: upsert Lab Note (protected)
@@ -51,7 +91,8 @@ export function registerAdminRoutes(app: any, db: Database.Database) {
                 locale,
                 category,
                 excerpt,
-                content_html,
+                summary,
+                content_markdown, // optional (empty allowed)
                 department_id,
                 shadow_density,
                 coherence_score,
@@ -61,92 +102,232 @@ export function registerAdminRoutes(app: any, db: Database.Database) {
                 type,
                 status,
                 dept,
-                summary,
-                // tags, // keep for later
             } = req.body ?? {};
 
             if (!title) return res.status(400).json({ error: "title is required" });
             if (!slug) return res.status(400).json({ error: "slug is required" });
 
-            const noteId = id ?? randomUUID();
             const noteLocale = normalizeLocale(locale);
-
             const noteType = String(type ?? "labnote");
             const noteStatus = String(status ?? (published_at ? "published" : "draft"));
-
             const normalizedPublishedAt =
                 noteStatus === "published"
-                    ? published_at || new Date().toISOString().slice(0, 10)
-                    : published_at || null;
+                    ? (published_at ?? new Date().toISOString().slice(0, 10))
+                    : null;
 
-            const stmt = db.prepare(`
-        INSERT INTO lab_notes (
-          id, title, slug, locale,
-          type, status, dept,
-          category, excerpt, summary, content_html,
-          department_id, shadow_density, coherence_score,
-          safer_landing, read_time_minutes, published_at,
-          updated_at
-        )
-        VALUES (
-          ?, ?, ?, ?,
-          ?, ?, ?,
-          ?, ?, ?, ?,
-          ?, ?, ?,
-          ?, ?, ?,
-          strftime('%Y-%m-%dT%H:%M:%fZ','now')
-        )
-        ON CONFLICT(slug, locale) DO UPDATE SET
-          title=excluded.title,
-          type=excluded.type,
-          status=excluded.status,
-          dept=excluded.dept,
-          category=excluded.category,
-          excerpt=excluded.excerpt,
-          summary=excluded.summary,
-          content_html=excluded.content_html,
-          department_id=excluded.department_id,
-          shadow_density=excluded.shadow_density,
-          coherence_score=excluded.coherence_score,
-          safer_landing=excluded.safer_landing,
-          read_time_minutes=excluded.read_time_minutes,
-          published_at=excluded.published_at,
-          updated_at=excluded.updated_at
-      `);
+            // Allow empty markdown so existing tests that only send metadata still pass.
+            const bodyMarkdown = String(content_markdown ?? "");
 
-            stmt.run(
-                noteId,
-                title,
-                slug,
-                noteLocale,
+            // ✅ Resolve canonical noteId by (slug, locale) to make upserts stable
+            const existing = db
+                .prepare("SELECT id FROM lab_notes WHERE slug = ? AND locale = ?")
+                .get(slug, noteLocale) as { id: string } | undefined;
 
-                noteType,
-                noteStatus,
-                dept ?? null,
+            // If the row already exists, prefer its id over any incoming id.
+            // This prevents “identity drift” where (slug, locale) updates a different id.
+            const noteId = existing?.id ?? id ?? randomUUID();
 
-                category || "Uncategorized",
-                excerpt || "",
-                summary || "",
+            const tx = db.transaction(() => {
+                // 1) Upsert metadata row (NO content_html writes, NO content_markdown column)
+                db.prepare(`
+                    INSERT INTO lab_notes (
+                        id, title, slug, locale,
+                        type, status, dept,
+                        category, excerpt, summary,
+                        department_id, shadow_density, coherence_score,
+                        safer_landing, read_time_minutes, published_at,
+                        updated_at
+                    )
+                    VALUES (
+                               ?, ?, ?, ?,
+                               ?, ?, ?,
+                               ?, ?, ?,
+                               ?, ?, ?,
+                               ?, ?, ?,
+                               strftime('%Y-%m-%dT%H:%M:%fZ','now')
+                           )
+                    ON CONFLICT(slug, locale) DO UPDATE SET
+                                                            title=excluded.title,
+                                                            type=excluded.type,
+                                                            status=excluded.status,
+                                                            dept=excluded.dept,
+                                                            category=excluded.category,
+                                                            excerpt=excluded.excerpt,
+                                                            summary=excluded.summary,
+                                                            department_id=excluded.department_id,
+                                                            shadow_density=excluded.shadow_density,
+                                                            coherence_score=excluded.coherence_score,
+                                                            safer_landing=excluded.safer_landing,
+                                                            read_time_minutes=excluded.read_time_minutes,
+                                                            published_at=excluded.published_at,
+                                                            updated_at=excluded.updated_at
+                `).run(
+                    noteId,
+                    title,
+                    slug,
+                    noteLocale,
 
-                content_html || null,
+                    noteType,
+                    noteStatus,
+                    dept ?? null,
 
-                department_id || "SCMS",
-                shadow_density ?? 0,
-                coherence_score ?? 1.0,
-                safer_landing ? 1 : 0,
-                read_time_minutes ?? 5,
+                    category || "Uncategorized",
+                    excerpt || "",
+                    summary || "",
 
-                normalizedPublishedAt
-            );
+                    department_id || "SCMS",
+                    shadow_density ?? 0,
+                    coherence_score ?? 1.0,
+                    safer_landing ? 1 : 0,
+                    read_time_minutes ?? 5,
 
-            return res.status(201).json({
-                id: noteId,
-                slug,
-                locale: noteLocale,
-                type: noteType,
-                status: noteStatus,
-                message: "Note saved with energetic metadata",
+                    normalizedPublishedAt
+                );
+
+                // 2) Clear legacy HTML so nothing can “win” accidentally
+                db.prepare(`UPDATE lab_notes SET content_html = NULL WHERE id = ?`).run(noteId);
+
+                // 3) Compute next revision_num
+                const revRow = db
+                    .prepare(`
+                        SELECT COALESCE(MAX(revision_num), 0) AS maxRev
+                        FROM lab_note_revisions
+                        WHERE note_id = ?
+                    `)
+                    .get(noteId) as { maxRev: number } | undefined;
+
+                const nextRev = (revRow?.maxRev ?? 0) + 1;
+
+                // 4) Create revision row (ledger truth)
+                const revisionId = crypto.randomUUID();
+
+                const prevPointer = db
+                    .prepare(`
+                        SELECT current_revision_id AS cur
+                        FROM lab_notes
+                        WHERE id = ?
+                    `)
+                    .get(noteId) as { cur?: string } | undefined;
+
+                const frontmatter = {
+                    id: noteId,
+                    slug,
+                    locale: noteLocale,
+                    type: noteType,
+                    title,
+                    status: noteStatus,
+                    published: normalizedPublishedAt ?? undefined,
+                    dept: dept ?? null,
+                    department_id: department_id || "SCMS",
+                    shadow_density: shadow_density ?? 0,
+                    coherence_score: coherence_score ?? 1.0,
+                    safer_landing: Boolean(safer_landing),
+                    summary: summary || "",
+                    excerpt: excerpt || "",
+                    category: category || "Uncategorized",
+                    read_time_minutes: read_time_minutes ?? 5,
+                };
+
+                const canonical = `${JSON.stringify(frontmatter)}\n---\n${bodyMarkdown}`;
+                const contentHash = sha256Hex(canonical);
+
+                db.prepare(`
+                    INSERT INTO lab_note_revisions (
+                        id, note_id, revision_num, supersedes_revision_id,
+                        frontmatter_json, content_markdown, content_hash,
+                        schema_version, source,
+                        intent, intent_version,
+                        scope_json, side_effects_json, reversible,
+                        auth_type, scopes_json,
+                        reasoning_json,
+                        created_at
+                    )
+                    VALUES (
+                               ?, ?, ?, ?,
+                               ?, ?, ?,
+                               ?, ?,
+                               ?, ?,
+                               ?, ?, ?,
+                               ?, ?,
+                               NULL,
+                               strftime('%Y-%m-%dT%H:%M:%fZ','now')
+                           )
+                `).run(
+                    revisionId,
+                    noteId,
+                    nextRev,
+                    prevPointer?.cur ?? null,
+
+                    JSON.stringify(frontmatter),
+                    bodyMarkdown,
+                    contentHash,
+
+                    "0.1",
+                    "web", // must satisfy CHECK constraint
+                    "admin_save",
+                    "1",
+
+                    JSON.stringify(["db"]),
+                    JSON.stringify(["update_note"]),
+                    1,
+
+                    "human_session",
+                    JSON.stringify([])
+                );
+
+                // 5) Update pointers (current always points at latest save)
+                db.prepare(`
+                    UPDATE lab_notes
+                    SET
+                        current_revision_id = ?,
+                        updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
+                    WHERE id = ?
+                `).run(revisionId, noteId);
+
+                // 6) Enforce publish/draft hard rules
+                if (noteStatus === "published") {
+                    db.prepare(`
+                        UPDATE lab_notes
+                        SET
+                            published_revision_id = current_revision_id,
+                            published_at = COALESCE(published_at, ?),
+                            updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
+                        WHERE id = ?
+                    `).run(
+                        normalizedPublishedAt ?? new Date().toISOString().slice(0, 10),
+                        noteId
+                    );
+                } else {
+                    db.prepare(`
+                        UPDATE lab_notes
+                        SET
+                            published_revision_id = NULL,
+                            published_at = NULL,
+                            updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
+                        WHERE id = ?
+                    `).run(noteId);
+                }
+
+                return { noteId };
             });
+
+            const { noteId: savedId } = tx();
+
+            // Return canonical row with current ledger content
+            const saved = db
+                .prepare(`
+                    SELECT
+                        n.*,
+                        r.content_markdown AS content_markdown,
+                        r.frontmatter_json AS frontmatter_json
+                    FROM lab_notes n
+                             LEFT JOIN lab_note_revisions r ON r.id = n.current_revision_id
+                    WHERE n.id = ?
+                    LIMIT 1
+                `)
+                .get(savedId);
+
+            return res.status(201).json(saved);
         } catch (e: any) {
             return res.status(500).json({
                 error: "Database error",
@@ -154,6 +335,68 @@ export function registerAdminRoutes(app: any, db: Database.Database) {
             });
         }
     });
+
+
+
+    // ---------------------------------------------------------------------------
+    // Admin: Publish Lab Note (protected)
+    // ---------------------------------------------------------------------------
+    app.post("/admin/notes/:id/publish", requireAdmin, (req: Request, res: Response) => {
+        try {
+            const id = String(req.params.id ?? "").trim();
+            if (!id) return res.status(400).json({ error: "id is required" });
+
+            const nowDate = new Date().toISOString().slice(0, 10);
+
+            const result = db
+                .prepare(
+                    `
+        UPDATE lab_notes
+        SET
+          status = 'published',
+          published_at = COALESCE(published_at, ?),
+          updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
+        WHERE id = ?
+      `
+                )
+                .run(nowDate, id);
+
+            if (result.changes === 0) return res.status(404).json({ error: "Not found" });
+            return res.json({ ok: true, id, status: "published" });
+        } catch (e: any) {
+            return res.status(500).json({ error: "Database error", details: String(e?.message ?? e) });
+        }
+    });
+
+
+    // ---------------------------------------------------------------------------
+    // Admin: Un-publish Lab Note (protected)
+    // ---------------------------------------------------------------------------
+    app.post("/admin/notes/:id/unpublish", requireAdmin, (req: Request, res: Response) => {
+        try {
+            const id = String(req.params.id ?? "").trim();
+            if (!id) return res.status(400).json({ error: "id is required" });
+
+            const result = db
+                .prepare(
+                    `
+                    UPDATE lab_notes
+                    SET
+                      status = 'draft',
+                      published_at = NULL,
+                      updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
+                    WHERE id = ?
+                  `
+                )
+                .run(id);
+
+            if (result.changes === 0) return res.status(404).json({ error: "Not found" });
+            return res.json({ ok: true, id, status: "draft" });
+        } catch (e: any) {
+            return res.status(500).json({ error: "Database error", details: String(e?.message ?? e) });
+        }
+    });
+
 
     // ---------------------------------------------------------------------------
     // Auth helpers (always available)
