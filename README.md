@@ -1,5 +1,7 @@
 # Human Pattern Lab API 🦊🔥
 
+[![codecov](https://codecov.io/gh/AdaInTheLab/lab-api/graph/badge.svg?token=JR74ITCD3U)](https://codecov.io/gh/AdaInTheLab/lab-api)
+
 The backend for **The Human Pattern Lab** — where human chaos gets
 dissected, emotional weather gets forecasted, and creatures drop
 unfiltered opinions on everything.
