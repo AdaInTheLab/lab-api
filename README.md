@@ -27,10 +27,11 @@ Public knowledge flows freely. Admin routes are… supervised. 😼
 
 - **SQLite Ledger model** — append-first persistence powering note history and projections
 - **Express + TypeScript** — simple, explicit, dependable
-- **GitHub OAuth** — browser redirect + Device Flow (CLI-friendly)
+- **GitHub OAuth** — browser redirect for admins + Device Flow for CLI access
 - **Public endpoints** — read-only access to Lab Notes
 - **Protected admin routes** — create, edit, delete notes (Carmel is watching)
 - **Environment-based secrets** — no hardcoding, no nonsense
+- **Admin API tokens** — scoped, revocable access for CLI and automation (raw tokens returned once)
 
 ---
 
@@ -63,12 +64,25 @@ This compiles TypeScript to `dist/` and runs the built server.
 
 ```env
 PORT=8001
+
+# ── GitHub OAuth ─────────────────────────────
 GITHUB_CLIENT_ID=your-github-client-id
 GITHUB_CLIENT_SECRET=your-github-client-secret
 SESSION_SECRET=your-random-long-secret-here
-ALLOWED_GITHUB_USERNAME=your-github-username
+
+# ── Admin Access Control ─────────────────────
+ADMIN_GITHUB_USERS=your-github-username
+ADMIN_GITHUB_LOGINS=your-github-username
+
+# ── API Tokens ───────────────────────────────
+TOKEN_PEPPER=your-long-random-secret
+
+# ── Database ─────────────────────────────────
 DB_PATH=/path/to/lab.db
 ```
+
+> `TOKEN_PEPPER` is required in production and is used to securely hash API tokens.
+
 
 ---
 
@@ -93,6 +107,14 @@ DB_PATH=/path/to/lab.db
 
 - `GET /github/device`
 - `GET /github/device/poll/:device_code`
+
+### Admin Tokens
+
+- `GET /admin/tokens` — list issued API tokens (no secrets)
+- `POST /admin/tokens` — mint a new scoped API token (returned once)
+- `POST /admin/tokens/:id/revoke` — revoke an existing token
+
+Admin routes are… supervised. 😼 (and logged.)
 
 ---
 
