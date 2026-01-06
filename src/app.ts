@@ -161,7 +161,7 @@ export function createApp() {
     // Most common setup:
     // - Dev: UI localhost:5173, API localhost:3001 -> cross-origin -> lax is OK
     // - Prod: UI domain, API subdomain -> cross-origin -> none is needed
-    const cookieSameSite = isProd ? "none" : "lax";
+    const cookieSameSite = "lax";
 
     app.use(
         session({

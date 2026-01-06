@@ -173,16 +173,31 @@ export function registerAdminRoutes(app: any, db: Database.Database) {
     if (isGithubOAuthEnabled()) {
         app.get("/auth/github", passport.authenticate("github", { scope: ["user:email"] }));
 
-        app.get(
-            "/auth/github/callback",
-            passport.authenticate("github", {
-                failureRedirect: `${UI_BASE_URL}/login`,
-                session: true,
-            }),
-            (_req: Request, res: Response) => {
-                res.redirect(`${UI_BASE_URL}/admin`);
-            }
-        );
+        app.get("/auth/github/callback", (req: { headers: { cookie: any; }; sessionID: any; logIn: (arg0: any, arg1: (e: any) => any) => void; }, res: {
+            redirect: (arg0: string) => any;
+        }, next: any) => {
+            passport.authenticate("github", (err: { message: any; }, user: any, info: any) => {
+                console.log("[auth/github/callback]", {
+                    err: err?.message ?? null,
+                    info,
+                    hasUser: Boolean(user),
+                    hasCookieHeader: Boolean(req.headers.cookie),
+                    sessionID: req.sessionID,
+                });
+
+                if (err || !user) {
+                    return res.redirect(`${UI_BASE_URL}/admin/login?oauth=failed`);
+                }
+
+                req.logIn(user, (e) => {
+                    if (e) {
+                        console.log("[auth/github/callback] req.logIn failed", e);
+                        return res.redirect(`${UI_BASE_URL}/admin/login?oauth=login_failed`);
+                    }
+                    return res.redirect(`${UI_BASE_URL}/admin/dashboard`);
+                });
+            })(req, res, next);
+        });
     } else {
         // Optional: make it obvious why /auth/github "doesn't exist" when disabled
         app.get("/auth/github", passport.authenticate("github", { scope: ["user:email"] }));
