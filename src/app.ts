@@ -217,6 +217,16 @@ export function createApp() {
         });
     });
 
+    //TODO: THIS IS TEMP
+    app.get("/auth/cookie-test", (req, res) => {
+        req.session.cookie_test = Date.now();
+        res.json({
+            ok: true,
+            wrote: true,
+            hasCookieHeader: Boolean(req.headers.cookie),
+            sessionID: req.sessionID,
+        });
+    });
 
     /* ===========================================================
        12) ROUTES (LAST)

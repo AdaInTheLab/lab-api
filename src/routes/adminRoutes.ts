@@ -188,7 +188,25 @@ export function registerAdminRoutes(app: any, db: Database.Database) {
     // GitHub OAuth
     // ---------------------------------------------------------------------------
     if (isGithubOAuthEnabled()) {
-        app.get("/auth/github", passport.authenticate("github", { scope: ["user:email"] }));
+        app.get(
+            "/auth/github",
+            (req: { session: { oauth: { startedAt: number; ua: any; }; save: (arg0: (err: any) => void) => void; }; headers: { [x: string]: any; }; }, res: any, next: () => void) => {
+                // ✅ Force session creation so Set-Cookie happens before redirect to GitHub
+                req.session.oauth = {
+                    startedAt: Date.now(),
+                    ua: req.headers["user-agent"] ?? null,
+                };
+                req.session.save((err) => {
+                    if (err) {
+                        console.error("[auth/github] session.save failed", err);
+                        // still attempt auth; worst case it fails and redirects to login
+                    }
+                    next();
+                });
+            },
+            passport.authenticate("github", { scope: ["user:email"] })
+        );
+
 
         app.get("/auth/github/callback", (req: { headers: { cookie: any; }; sessionID: any; logIn: (arg0: any, arg1: (e: any) => any) => void; }, res: {
             redirect: (arg0: string) => any;
