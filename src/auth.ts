@@ -27,6 +27,38 @@ function missingGithubOAuthKeys(): EnvKey[] {
     return keys.filter((k) => !getGithubOAuthEnv(k));
 }
 
+function parseAllowlist(envValue?: string): string[] {
+    return String(envValue ?? "")
+        .split(",")
+        .map((s) => s.trim().toLowerCase())
+        .filter(Boolean);
+}
+
+/**
+ * ✅ Single source of truth for admin allowlist
+ * Supports:
+ * - ADMIN_GITHUB_USERS (comma-separated)
+ * - ADMIN_GITHUB_LOGINS (comma-separated)
+ * - ALLOWED_GITHUB_USERNAME (single)  (kept for backwards compat)
+ */
+function buildAdminAllowlist(): Set<string> {
+    return new Set<string>([
+        ...parseAllowlist(process.env.ADMIN_GITHUB_USERS),
+        ...parseAllowlist(process.env.ADMIN_GITHUB_LOGINS),
+        ...parseAllowlist(process.env.ALLOWED_GITHUB_USERNAME),
+    ]);
+}
+
+export function getGithubLogin(user: any): string | null {
+    const raw = String(user?.username ?? user?.login ?? "").trim();
+    return raw ? raw.toLowerCase() : null;
+}
+
+/**
+ * Passport configuration:
+ * - Authenticate ANY valid GitHub user (no allowlist here)
+ * - Authorization happens in requireAdmin (single gate)
+ */
 export function configurePassport() {
     if (process.env.NODE_ENV === "test") return;
 
@@ -47,22 +79,12 @@ export function configurePassport() {
         new GitHubStrategy(
             { clientID, clientSecret, callbackURL },
             (_accessToken: any, _refreshToken: any, profile: any, done: any) => {
-                const login = String(profile?.username ?? "").trim().toLowerCase();
-
-                // If no username, fail
-                if (!login) return done(null, false);
-
-                // Reuse the same allowlist rules as requireAdmin
-                const allow = buildAdminAllowlist();
-
-                // If allowlist configured, enforce it
-                if (allow.size > 0 && !allow.has(login)) return done(null, false);
-
+                // ✅ Authentication only (no allowlist here)
+                // Keep profile minimal if you want, but leaving it as-is is fine for now.
                 return done(null, profile);
             }
         )
     );
-
 
     passport.serializeUser((user: any, done) => done(null, user));
     passport.deserializeUser((user: any, done) => done(null, user));
@@ -76,27 +98,6 @@ export const ensureAuthenticated = (
     if (req.isAuthenticated?.()) return next();
     return res.status(401).json({ error: "Unauthorized" });
 };
-
-export function getGithubLogin(user: any): string | null {
-    const raw = String(user?.username ?? user?.login ?? "").trim();
-    return raw ? raw.toLowerCase() : null;
-}
-
-function parseAllowlist(envValue?: string): string[] {
-    return String(envValue ?? "")
-        .split(",")
-        .map((s) => s.trim().toLowerCase())
-        .filter(Boolean);
-}
-
-// ✅ Single source of truth for admin allowlist
-function buildAdminAllowlist(): Set<string> {
-    return new Set<string>([
-        ...parseAllowlist(process.env.ADMIN_GITHUB_USERS),
-        ...parseAllowlist(process.env.ADMIN_GITHUB_LOGINS),
-        ...parseAllowlist(process.env.ALLOWED_GITHUB_USERNAME),
-    ]);
-}
 
 /**
  * Admin gate (API-side). Use this on /admin/* routes.
@@ -130,6 +131,7 @@ export const requireAdmin = (req: Request, res: Response, next: NextFunction) =>
         return res.status(401).json({ error: "Unauthorized" });
     }
 
+    // If allowlist exists, enforce it (case-insensitive by construction)
     if (allow.size > 0 && !allow.has(login)) {
         return res.status(403).json({ error: "Forbidden" });
     }
