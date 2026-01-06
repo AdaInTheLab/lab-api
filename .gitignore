@@ -37,3 +37,4 @@ ecosystem.config.cjs
 /passenger-start.cjs
 /cloudflared.yml
 /config.yml
+/coverage/
