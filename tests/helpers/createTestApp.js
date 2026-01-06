@@ -3,6 +3,7 @@ import express from "express";
 import { registerHealthRoutes } from "../../src/routes/healthRoutes.js";
 import { registerLabNotesRoutes } from "../../src/routes/labNotesRoutes.js";
 import { registerAdminRoutes } from "../../src/routes/adminRoutes.js";
+import { registerAdminTokensRoutes} from "../../src/routes/adminTokensRoutes.js";
 import { openDb, bootstrapDb, seedMarkerNote } from "../../src/db.js";
 
 export function api(path) {
@@ -26,6 +27,7 @@ export function createTestApp() {
     registerHealthRoutes(app, db);
     registerLabNotesRoutes(app, db);
     registerAdminRoutes(app, db);
+    registerAdminTokensRoutes(app, db);
 
     bootstrapDb(db);
     seedMarkerNote(db);

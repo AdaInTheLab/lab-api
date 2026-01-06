@@ -169,18 +169,23 @@ export function createApp() {
             secret: sessionSecret ?? "test-secret", // tests only
             resave: false,
             saveUninitialized: false,
+
+            // ✅ Cloudflare / reverse proxy friendly
+            proxy: true,
+
             cookie: {
                 httpOnly: true,
 
-                // In production, if you're using HTTPS (you should), secure cookies are correct.
-                // NOTE: This must be true if sameSite is "none".
-                secure: isProd,
+            // ✅ must be true when sameSite is "none"
+            secure: isProd,
 
-                // "none" for cross-origin cookie flows, "lax" for dev or same-site flows.
-                sameSite: cookieSameSite,
+            sameSite: cookieSameSite,
 
-                // Optional: makes sessions survive restarts for a bit
-                // maxAge: 1000 * 60 * 60 * 24 * 7,
+            // ✅ allow cookie across root + api subdomain (prod only)
+            domain: isProd ? ".thehumanpatternlab.com" : undefined,
+
+            // Optional: makes sessions survive restarts for a bit
+            // maxAge: 1000 * 60 * 60 * 24 * 7,
             },
         })
     );
@@ -227,11 +232,8 @@ export function createApp() {
 
 // MOUNT THE ROUTER (this is what makes routes actually exist)
     app.use("/", api);     // ✅ canonical
-    app.use("/api", api);  // 🧯 legacy alias (temporary)
-
 
 // Non-API routes can still live at root if you want:
     registerOpenApiRoutes(app);
-
     return app;
 }
