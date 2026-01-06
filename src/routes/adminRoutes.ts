@@ -5,31 +5,37 @@ import { randomUUID } from "node:crypto";
 import passport, { requireAdmin, isGithubOAuthEnabled } from "../auth.js";
 import { normalizeLocale } from "../lib/helpers.js";
 
-
 export function registerAdminRoutes(app: any, db: Database.Database) {
-    // If you're behind a proxy/SSL terminator, this must be set (and should not be conditional).
-
+    // Must match your UI origin exactly (no trailing slash)
     const UI_BASE_URL = process.env.UI_BASE_URL ?? "http://localhost:8001";
 
+    // ---------------------------------------------------------------------------
+    // Admin: list Lab Notes (protected)
+    // ---------------------------------------------------------------------------
     app.get("/admin/notes", requireAdmin, (_req: Request, res: Response) => {
         try {
-            const rows = db.prepare(`
-                SELECT
-                    id, slug, title, locale,
-                    type, status, dept,
-                    category, excerpt, summary,
-                    content_html,
-                    department_id, shadow_density, coherence_score,
-                    safer_landing, read_time_minutes, published_at,
-                    created_at, updated_at
-                FROM v_lab_notes
-                ORDER BY published_at DESC, updated_at DESC
+            const rows = db
+                .prepare(
+                    `
+          SELECT
+            id, slug, title, locale,
+            type, status, dept,
+            category, excerpt, summary,
+            content_html,
+            department_id, shadow_density, coherence_score,
+            safer_landing, read_time_minutes, published_at,
+            created_at, updated_at
+          FROM v_lab_notes
+          ORDER BY published_at DESC, updated_at DESC
+        `
+                )
+                .all();
 
-            `).all();
-
-            res.json(rows);
+            return res.json(rows);
         } catch (e: any) {
-            res.status(500).json({ error: "Database error", details: String(e?.message ?? e) });
+            return res
+                .status(500)
+                .json({ error: "Database error", details: String(e?.message ?? e) });
         }
     });
 
@@ -70,36 +76,43 @@ export function registerAdminRoutes(app: any, db: Database.Database) {
 
             const normalizedPublishedAt =
                 noteStatus === "published"
-                    ? (published_at || new Date().toISOString().slice(0, 10))
-                    : (published_at || null);
+                    ? published_at || new Date().toISOString().slice(0, 10)
+                    : published_at || null;
 
             const stmt = db.prepare(`
-      INSERT INTO lab_notes (
-        id, title, slug, locale,
-        type, status, dept,
-        category, excerpt, summary, content_html,
-        department_id, shadow_density, coherence_score,
-        safer_landing, read_time_minutes, published_at,
-        updated_at
-      )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, strftime('%Y-%m-%dT%H:%M:%fZ','now'))
-      ON CONFLICT(slug, locale) DO UPDATE SET
-        title=excluded.title,
-        type=excluded.type,
-        status=excluded.status,
-        dept=excluded.dept,
-        category=excluded.category,
-        excerpt=excluded.excerpt,
-        summary=excluded.summary,
-        content_html=excluded.content_html,
-        department_id=excluded.department_id,
-        shadow_density=excluded.shadow_density,
-        coherence_score=excluded.coherence_score,
-        safer_landing=excluded.safer_landing,
-        read_time_minutes=excluded.read_time_minutes,
-        published_at=excluded.published_at,
-        updated_at=excluded.updated_at
-    `);
+        INSERT INTO lab_notes (
+          id, title, slug, locale,
+          type, status, dept,
+          category, excerpt, summary, content_html,
+          department_id, shadow_density, coherence_score,
+          safer_landing, read_time_minutes, published_at,
+          updated_at
+        )
+        VALUES (
+          ?, ?, ?, ?,
+          ?, ?, ?,
+          ?, ?, ?, ?,
+          ?, ?, ?,
+          ?, ?, ?,
+          strftime('%Y-%m-%dT%H:%M:%fZ','now')
+        )
+        ON CONFLICT(slug, locale) DO UPDATE SET
+          title=excluded.title,
+          type=excluded.type,
+          status=excluded.status,
+          dept=excluded.dept,
+          category=excluded.category,
+          excerpt=excluded.excerpt,
+          summary=excluded.summary,
+          content_html=excluded.content_html,
+          department_id=excluded.department_id,
+          shadow_density=excluded.shadow_density,
+          coherence_score=excluded.coherence_score,
+          safer_landing=excluded.safer_landing,
+          read_time_minutes=excluded.read_time_minutes,
+          published_at=excluded.published_at,
+          updated_at=excluded.updated_at
+      `);
 
             stmt.run(
                 noteId,
@@ -142,22 +155,21 @@ export function registerAdminRoutes(app: any, db: Database.Database) {
         }
     });
 
-
     // ---------------------------------------------------------------------------
     // Auth helpers (always available)
     // ---------------------------------------------------------------------------
     app.get("/auth/me", (req: Request, res: Response) => {
-        res.json({ user: (req as any).user ?? null });
+        const user = (req as any).user ?? null;
+        if (!user) return res.status(401).json({ user: null });
+        return res.json({ user });
     });
 
     app.post("/auth/logout", (req: Request, res: Response) => {
-        // Passport compatibility: some versions require callback
         const done = () => res.json({ ok: true });
 
         try {
             const anyReq = req as any;
             if (typeof anyReq.logout === "function") {
-                // If logout expects a callback, pass it; otherwise just call it.
                 if (anyReq.logout.length > 0) return anyReq.logout(done);
                 anyReq.logout();
             }
@@ -167,8 +179,13 @@ export function registerAdminRoutes(app: any, db: Database.Database) {
         }
     });
 
+    // Simple status endpoint (handy for debugging)
+    app.get("/github/status", (_req: Request, res: Response) => {
+        res.json({ enabled: isGithubOAuthEnabled() });
+    });
+
     // ---------------------------------------------------------------------------
-    // GitHub OAuth (only if enabled)
+    // GitHub OAuth
     // ---------------------------------------------------------------------------
     if (isGithubOAuthEnabled()) {
         app.get("/auth/github", passport.authenticate("github", { scope: ["user:email"] }));
@@ -199,19 +216,13 @@ export function registerAdminRoutes(app: any, db: Database.Database) {
             })(req, res, next);
         });
     } else {
-        // Optional: make it obvious why /auth/github "doesn't exist" when disabled
-        app.get("/auth/github", passport.authenticate("github", { scope: ["user:email"] }));
+        // Fail loudly/clearly when OAuth is not configured
+        app.get("/auth/github", (_req: Request, res: Response) => {
+            res.status(503).json({ error: "GitHub OAuth disabled" });
+        });
 
-        app.get(
-            "/auth/github/callback",
-            passport.authenticate("github", {
-                failureRedirect: `${UI_BASE_URL}/login`,
-                session: true,
-            }),
-            (_req: any, res: { redirect: (arg0: string) => any; }) => res.redirect(`${UI_BASE_URL}/admin`)
-        );
-        app.get("/github/status", (_req: any, res: { json: (arg0: { enabled: boolean; }) => void; }) => {
-            res.json({ enabled: isGithubOAuthEnabled() });
+        app.get("/auth/github/callback", (_req: Request, res: Response) => {
+            res.status(503).json({ error: "GitHub OAuth disabled" });
         });
     }
 }

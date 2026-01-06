@@ -6,6 +6,7 @@ import crypto from "crypto";
 import { env } from "./env.js";
 import { migrateLabNotesSchema, LAB_NOTES_SCHEMA_VERSION } from "./db/migrateLabNotes.js";
 import {dedupeLabNotesSlugs} from "./db/migrations/2025-01-dedupe-lab-notes-slugs.js";
+import { migrateApiTokensSchema } from "./db/migrateApiTokens.js";
 
 export function resolveDbPath(): string {
     const __filename = fileURLToPath(import.meta.url);
@@ -76,6 +77,7 @@ export function bootstrapDb(db: Database.Database) {
     const prevVersion = getLabNotesSchemaVersion(db);
     // ✅ Single source of truth for schema + views
     migrateLabNotesSchema(db, log);
+    migrateApiTokensSchema(db, log);
     if (prevVersion < 3) {
         dedupeLabNotesSlugs(db, log);
     }
