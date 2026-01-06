@@ -39,7 +39,7 @@ export function registerAdminTokensRoutes(app: any, db: Database.Database) {
             created_by_user,
         });
 
-        res.json({ ok: true, data: minted }); // includes raw token once
+        return res.status(201).json({ ok: true, data: minted }); // includes raw token once
     });
 
     // Revoke
