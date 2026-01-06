@@ -176,16 +176,16 @@ export function createApp() {
             cookie: {
                 httpOnly: true,
 
-            // ✅ must be true when sameSite is "none"
-            secure: isProd,
+                // ✅ must be true when sameSite is "none"
+                secure: isProd,
 
-            sameSite: cookieSameSite,
+                sameSite: "none",
 
-            // ✅ allow cookie across root + api subdomain (prod only)
-            domain: isProd ? ".thehumanpatternlab.com" : undefined,
+                // ✅ allow cookie across root + api subdomain (prod only)
+                domain: isProd ? ".thehumanpatternlab.com" : undefined,
 
-            // Optional: makes sessions survive restarts for a bit
-            // maxAge: 1000 * 60 * 60 * 24 * 7,
+                // Optional: makes sessions survive restarts for a bit
+                // maxAge: 1000 * 60 * 60 * 24 * 7,
             },
         })
     );
@@ -214,18 +214,6 @@ export function createApp() {
             sessionID: req.sessionID,
             isAuthenticated: req.isAuthenticated?.() ?? false,
             user: req.user ?? null,
-        });
-    });
-
-    //TODO: THIS IS TEMP
-    app.get("/auth/cookie-test", (req, res) => {
-        (req.session as any).cookie_test = Date.now();
-
-        res.json({
-            ok: true,
-            wrote: true,
-            hasCookieHeader: Boolean(req.headers.cookie),
-            sessionID: req.sessionID,
         });
     });
 
