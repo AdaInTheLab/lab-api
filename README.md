@@ -211,6 +211,25 @@ Clients should rely only on documented HTTP endpoints, not internal DB structure
 
 ---
 
+## 🗃️ Content Source of Truth
+
+This repository (`lab-api`) is the **canonical authority** for Lab content.
+
+It owns:
+- the database and schema
+- content validation and ingestion
+- permissions and provenance
+
+Content files themselves live in a separate repository and are mounted here as a **git submodule** at:
+
+- `./content/`
+
+This allows the API to import **deterministic, versioned content** while keeping the main site focused purely on presentation.
+
+👉 **For full details, workflows, and pitfalls:**  
+See [`docs/content-source-of-truth.md`](docs/content-source-of-truth.md)
+
+
 ## License
 
 MIT

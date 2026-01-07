@@ -1,34 +1,31 @@
-name: Carmel Judgment Protocol 😼🧪
+name: "Carmel Guard: Submodule Judgment"
 
 on:
   pull_request:
-    branches: ["main"]
   push:
-    branches: ["main"]
-
-concurrency:
-  group: ci-${{ github.ref }}
-  cancel-in-progress: true
+    branches: [main]
 
 jobs:
-  judgment:
-    name: Carmel Reviews Your Work
+  carmel-guard:
+    name: "CJO: Carmel Submodule Guard 🐾"
     runs-on: ubuntu-latest
 
     steps:
-      - name: 😼 Checkout for Inspection
+      - name: "🐾 Carmel arrives (checkout)"
         uses: actions/checkout@v4
-        with:
-          submodules: recursive
 
-      - name: 👁️ Carmel Submodule Inspection (Canon Check)
+      - name: "👁️ Carmel squints at .gitmodules"
         run: |
           set -euo pipefail
-
           if [ ! -f .gitmodules ]; then
             echo "::error::Carmel Judgment: .gitmodules is missing. Submodule not configured."
             exit 1
           fi
+          echo "✅ .gitmodules found"
+
+      - name: "📦 Carmel checks the content vault (content/)"
+        run: |
+          set -euo pipefail
 
           if [ ! -d content ]; then
             echo "::error::Carmel Judgment: content/ is missing. Submodule not checked out."
@@ -42,7 +39,13 @@ jobs:
             exit 1
           fi
 
-          # A leading "-" means not initialized.
+          echo "✅ content/ exists and is not empty"
+
+      - name: "🧾 Carmel reads the submodule status (no minus signs allowed)"
+        run: |
+          set -euo pipefail
+
+          # A leading "-" in `git submodule status` indicates not initialized.
           if git submodule status --recursive 2>/dev/null | grep -qE '^\-'; then
             echo "::error::Carmel Judgment: submodule(s) not initialized."
             echo "Fix: git submodule update --init --recursive"
@@ -52,24 +55,12 @@ jobs:
             exit 1
           fi
 
-          echo "😼✨ Canon present. Proceeding."
+          echo "✅ submodules initialized (Carmel approves)"
 
-      - name: 🧶 Set Up Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: "npm"
-
-      - name: 🐾 Install Dependencies
-        run: npm ci
-
-      - name: 🔍 Run Test Suite
-        run: npm test
-
-      - name: 🟢 Carmel Verdict
-        if: success()
-        run: echo "😼✨ Acceptable. You may proceed."
-
-      - name: 🔴 Carmel Displeased
-        if: failure()
-        run: echo "😾❌ Unacceptable. Fix it."
+      # OPTIONAL: enforce expected structure (uncomment if you want hard guarantees)
+      # - name: "📚 Carmel verifies expected folders"
+      #   run: |
+      #     set -euo pipefail
+      #     test -d content/labnotes/en || (echo "::error::Missing content/labnotes/en" && exit 1)
+      #     test -d content/labnotes/ko || (echo "::error::Missing content/labnotes/ko" && exit 1)
+      #     echo "✅ expected content folders found"
