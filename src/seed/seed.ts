@@ -200,7 +200,7 @@ export function seedMarkerNote({
         scope_json: JSON.stringify(["bootstrap"]),
         side_effects_json: JSON.stringify(["create"]),
         reversible: 1,
-        auth_type: "system",          // ✅ allowed by schema? if not, set to 'human_session'
+        auth_type: "human_session",         // ✅ allowed by schema? if not, set to 'human_session'
         scopes_json: JSON.stringify([]),
         created_at: ts,
     });

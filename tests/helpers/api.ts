@@ -1,4 +1,8 @@
 // tests/helpers/api.ts
-export const API_PREFIX = process.env.API_PREFIX ?? "";
-export const api = (path: string) =>
-    `${API_PREFIX}${path.startsWith("/") ? path : `/${path}`}`;
+export const api = (p: string) => {
+    if (process.env.NODE_ENV === "test") {
+        return p.startsWith("/") ? p : `/${p}`;
+    }
+    const prefix = process.env.API_PREFIX ?? "";
+    return `${prefix}${p.startsWith("/") ? p : `/${p}`}`;
+};

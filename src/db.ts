@@ -3,7 +3,9 @@ import Database from "better-sqlite3";
 import path from "path";
 import { fileURLToPath } from "url";
 import crypto from "crypto";
+import { marked } from "marked";
 import { env } from "./env.js";
+import { nowIso, sha256Hex } from './lib/helpers.js';
 import { migrateLabNotesSchema, LAB_NOTES_SCHEMA_VERSION } from "./db/migrateLabNotes.js";
 import {dedupeLabNotesSlugs} from "./db/migrations/2025-01-dedupe-lab-notes-slugs.js";
 import { migrateApiTokensSchema } from "./db/migrateApiTokens.js";
@@ -96,219 +98,165 @@ export function bootstrapDb(db: Database.Database) {
     setLabNotesSchemaVersion(db, LAB_NOTES_SCHEMA_VERSION)
 }
 
-function sha256Hex(input: string): string {
-    return crypto.createHash("sha256").update(input, "utf8").digest("hex");
-}
+/* ===========================================================
+   🌱 HUMAN PATTERN LAB — MARKER NOTE SEED (BOOT-SAFE)
+   -----------------------------------------------------------
+   Purpose:
+     Ensure the marker note exists and pointers are valid.
+     This may run on every app boot and MUST be idempotent.
 
-/**
- * Seeds a single marker note using the v2 ledger:
- * - lab_notes holds metadata + pointers
- * - lab_note_revisions holds markdown truth
- */
-export function seedMarkerNote(db: Database.Database) {
-    const nowIso = new Date().toISOString();
-    const noteId = "api-marker";
+   Behavior:
+     1) If lab_notes.current_revision_id is already set -> noop.
+     2) Else if any revisions exist -> repair pointers to latest revision.
+     3) Else -> create a new revision using next revision_num (safe).
+   =========================================================== */
+export function seedMarkerNote(db: any) {
+    const now = nowIso();
     const slug = "api-marker-note";
     const locale = "en";
 
-    // If already seeded (has current revision), do nothing.
+    // 0) Does this note already exist? (dev DB likely: yes)
     const existing = db.prepare(`
-    SELECT current_revision_id AS cur
+    SELECT id, current_revision_id, published_revision_id
     FROM lab_notes
-    WHERE id = ?
-  `).get(noteId) as { cur?: string } | undefined;
+    WHERE slug = ? AND locale = ?
+    LIMIT 1
+  `).get(slug, locale) as
+        | { id: string; current_revision_id: string | null; published_revision_id: string | null }
+        | undefined;
 
-    if (existing?.cur) return;
+    // Canonical id you *prefer* for new DBs, but we will NOT force it on existing rows.
+    const preferredId = `${slug}:${locale}`;
+    const notePk = existing?.id ?? preferredId;
 
-    // 1) Insert metadata row (idempotent)
-    db.prepare(`
-    INSERT OR IGNORE INTO lab_notes (
-      id,
-      group_id,
-      slug,
-      locale,
+    // 1) Create note if missing; otherwise update fields (but never try to change its id)
+    if (!existing) {
+        db.prepare(`
+      INSERT INTO lab_notes (
+        id, group_id, slug, locale,
+        status, title, category, excerpt,
+        published_at, content_html
+      )
+      VALUES (
+        @id, @group_id, @slug, @locale,
+        @status, @title, @category, @excerpt,
+        @published_at, @content_html
+      )
+    `).run({
+            id: notePk,
+            group_id: slug, // nice stable grouping key
+            slug,
+            locale,
+            status: "published",
+            title: "API Marker Note",
+            category: "memo",
+            excerpt: "Marker note used for tests and sanity checks.",
+            published_at: now,
+            content_html: "<h1>API Marker</h1><p>This is a seeded marker note.</p>",
+        });
+    } else {
+        db.prepare(`
+      UPDATE lab_notes
+      SET
+        status = 'published',
+        title = COALESCE(title, 'API Marker Note'),
+        category = COALESCE(category, 'memo'),
+        excerpt = COALESCE(excerpt, 'Marker note used for tests and sanity checks.'),
+        published_at = COALESCE(published_at, @now),
+        content_html = COALESCE(content_html, @html),
+        group_id = COALESCE(group_id, @group_id)
+      WHERE id = @id
+    `).run({
+            id: notePk,
+            now,
+            html: "<h1>API Marker</h1><p>This is a seeded marker note.</p>",
+            group_id: slug,
+        });
+    }
 
-      type,
-      title,
+    // 2) Ensure at least one revision exists for this notePk
+    const maxRow = db.prepare(`
+    SELECT COALESCE(MAX(revision_num), 0) as maxRev
+    FROM lab_note_revisions
+    WHERE note_id = ?
+  `).get(notePk) as { maxRev: number };
 
-      category,
-      excerpt,
-      department_id,
-      shadow_density,
-      safer_landing,
-      read_time_minutes,
-      coherence_score,
-      subtitle,
-      summary,
+    if (maxRow.maxRev === 0) {
+        const revId = crypto.randomUUID();
+        const md = "# API Marker\n\nThis is a seeded marker note.";
+        const hash = sha256Hex(md);
 
-      tags_json,
-      dept,
-
-      status,
-      published_at,
-
-      author,
-      ai_author,
-
-      source_locale,
-      translation_status,
-      translation_provider,
-      translation_version,
-      source_updated_at,
-      translation_meta_json,
-
-      content_html,
-
-      current_revision_id,
-      published_revision_id,
-
-      created_at,
-      updated_at
-    )
-    VALUES (
-      ?, ?, ?, ?,
-      ?, ?,
-      ?, ?, ?, ?, ?, ?, ?, ?, ?,
-      ?, ?,
-      ?, ?,
-      ?, ?,
-      ?, ?, ?, ?, ?, ?,
-      ?,
-      NULL, NULL,
-      ?, ?
-    )
-  `).run(
-        noteId,
-        noteId,
-        slug,
-        locale,
-
-        "memo",
-        "API Marker Note",
-
-        "Debug",
-        "If you can see this in WebStorm, we are looking at the same DB.",
-        "SCMS",
-        0.0,
+        db.prepare(`
+      INSERT INTO lab_note_revisions (
+        id,
+        note_id,
+        revision_num,
+        supersedes_revision_id,
+        frontmatter_json,
+        content_markdown,
+        content_hash,
+        schema_version,
+        source,
+        intent,
+        intent_version,
+        scope_json,
+        side_effects_json,
+        reversible,
+        auth_type,
+        scopes_json,
+        reasoning_json,
+        created_at
+      )
+      VALUES (
+        @id,
+        @note_id,
         1,
+        NULL,
+        @frontmatter_json,
+        @content_markdown,
+        @content_hash,
+        'v1',
+        'api',
+        'marker',
         1,
-        1.0,
-        null,
-        null,
-
-        "[]",
-        "SCMS",
-
-        "published",
-        nowIso.slice(0, 10),
-
-        "Ada",
-        "Lyric",
-
-        null,
-        "original",
-        null,
+        '{}',
+        '{}',
         1,
-        null,
-        null,
+        'human_session',
+        '[]',
+        NULL,
+        @created_at
+      )
+    `).run({
+            id: revId,
+            note_id: notePk, // ✅ FK-correct (lab_notes.id)
+            frontmatter_json: JSON.stringify({ title: "API Marker Note", locale }),
+            content_markdown: md,
+            content_hash: hash,
+            created_at: now,
+        });
+    }
 
-        null,
-        nowIso,
-        nowIso
-    );
+    // 3) Repair pointers to latest revision (always)
+    const latest = db.prepare(`
+        SELECT id
+        FROM lab_note_revisions
+        WHERE note_id = ?
+        ORDER BY revision_num DESC
+        LIMIT 1
+    `).get(notePk) as { id: string } | undefined;
 
-    // 2) Create revision (markdown truth)
-    const revisionId = crypto.randomUUID();
-
-    const frontmatter = {
-        id: noteId,
-        slug,
-        type: "memo",
-        title: "API Marker Note",
-        status: "published",
-        published: nowIso.slice(0, 10),
-        locale,
-        dept: "SCMS",
-        department_id: "SCMS",
-        shadow_density: 0,
-        safer_landing: true,
-        tags: [],
-        author: "Ada",
-        ai_author: "Lyric",
-    };
-
-    const contentMarkdown =
-        `---
-id: "${noteId}"
-slug: "${slug}"
-type: "memo"
-title: "API Marker Note"
-dept: "SCMS"
-published: "${nowIso.slice(0, 10)}"
-status: "published"
-locale: "en"
-tags: []
-summary: "If you can see this in WebStorm, we are looking at the same DB."
-readingTime: 1
-shadow_density: 0
-safer_landing: true
----
-
-If you can see this in WebStorm, we are looking at the same DB.
-`;
-
-    const canonical = `${JSON.stringify(frontmatter)}\n---\n${contentMarkdown}`;
-    const contentHash = sha256Hex(canonical);
-
-    db.prepare(`
-    INSERT INTO lab_note_revisions (
-      id, note_id, revision_num, supersedes_revision_id,
-      frontmatter_json, content_markdown, content_hash,
-      schema_version, source,
-      intent, intent_version,
-      scope_json, side_effects_json, reversible,
-      auth_type, scopes_json,
-      reasoning_json,
-      created_at
-    )
-    VALUES (
-      ?, ?, ?, NULL,
-      ?, ?, ?,
-      ?, ?,
-      ?, ?,
-      ?, ?, ?,
-      ?, ?,
-      NULL,
-      ?
-    )
-  `).run(
-        revisionId,
-        noteId,
-        1,
-        JSON.stringify(frontmatter),
-        contentMarkdown,
-        contentHash,
-        "0.1",
-        "import",
-        "seed_marker_note",
-        "1",
-        JSON.stringify(["db"]),
-        JSON.stringify(["create"]),
-        1,
-        "human_session",
-        JSON.stringify([]),
-        nowIso
-    );
-
-    // 3) Point note at revision
-    db.prepare(`
-    UPDATE lab_notes
-    SET current_revision_id = ?,
-        published_revision_id = COALESCE(published_revision_id, ?),
-        updated_at = ?
-    WHERE id = ?
-  `).run(revisionId, revisionId, nowIso, noteId);
+    if (latest?.id) {
+        db.prepare(`
+            UPDATE lab_notes
+            SET
+                current_revision_id = @rid,
+                published_revision_id = @rid
+            WHERE id = @nid
+        `).run({ rid: latest.id, nid: notePk });
+    }
 }
+
 
 export function isDbEmpty(db: Database.Database): boolean {
     const row = db.prepare(`SELECT COUNT(*) as count FROM lab_notes`).get() as { count: number };
