@@ -18,13 +18,14 @@ import crypto from "crypto";
 import { migrateLabNotesSchema } from "../db/migrateLabNotes.js"; // adjust path to your project
 import MarkdownIt from "markdown-it";
 
-
 // ── ENV NORMALIZATION ──────────────────────────────────────
 const rawEnv = process.env.NODE_ENV ?? "development";
 const NODE_ENV =
-    rawEnv === "dev" ? "development" :
-        rawEnv === "prod" ? "production" :
-            rawEnv;
+    rawEnv === "dev"
+        ? "development"
+        : rawEnv === "prod"
+            ? "production"
+            : rawEnv;
 
 if (!["development", "test", "production"].includes(NODE_ENV)) {
     throw new Error(`Invalid NODE_ENV: ${NODE_ENV}`);
@@ -39,8 +40,7 @@ const PROJECT_ROOT = path.resolve(__dirname, "..", "..");
 
 const DATA_DIR = path.join(PROJECT_ROOT, "data");
 
-const defaultDbFile =
-    NODE_ENV === "production" ? "lab.db" : "lab.dev.db";
+const defaultDbFile = NODE_ENV === "production" ? "lab.db" : "lab.dev.db";
 
 const dbPath =
     NODE_ENV === "test"
@@ -73,14 +73,12 @@ console.log(`🧭 NODE_ENV=${NODE_ENV}`);
 
 const db = new Database(dbPath);
 
-
-// after: const db = new Database(dbPath)
+// Ensure schema exists / upgraded
 migrateLabNotesSchema(db);
-
 
 // ── HELPERS ────────────────────────────────────────────────
 const md = new MarkdownIt({
-    html: false,   // 🔒 blocks raw HTML entirely
+    html: false, // 🔒 blocks raw HTML entirely
     linkify: true,
     typographer: true,
 });
@@ -119,7 +117,8 @@ function asStringArray(v: any): string[] {
 
 function listLocales(): string[] {
     if (!fs.existsSync(LABNOTES_ROOT)) return [];
-    return fs.readdirSync(LABNOTES_ROOT, { withFileTypes: true })
+    return fs
+        .readdirSync(LABNOTES_ROOT, { withFileTypes: true })
         .filter((d) => d.isDirectory())
         .map((d) => d.name)
         .filter((name) => /^[a-z]{2}(-[a-z]{2})?$/i.test(name)); // en, ko, en-us, etc.
@@ -134,14 +133,14 @@ function listLocales(): string[] {
  *   ---\n
  * - returns { frontmatter, body }
  */
-function parseFrontmatter(md: string): { frontmatter: Record<string, any>; body: string } {
-    const trimmed = md.trimStart();
+function parseFrontmatter(mdText: string): { frontmatter: Record<string, any>; body: string } {
+    const trimmed = mdText.trimStart();
     if (!trimmed.startsWith("---")) {
-        return { frontmatter: {}, body: md };
+        return { frontmatter: {}, body: mdText };
     }
 
     const lines = trimmed.split("\n");
-    if (lines.length < 3) return { frontmatter: {}, body: md };
+    if (lines.length < 3) return { frontmatter: {}, body: mdText };
 
     // Find second '---'
     let endIdx = -1;
@@ -151,7 +150,7 @@ function parseFrontmatter(md: string): { frontmatter: Record<string, any>; body:
             break;
         }
     }
-    if (endIdx === -1) return { frontmatter: {}, body: md };
+    if (endIdx === -1) return { frontmatter: {}, body: mdText };
 
     const fmLines = lines.slice(1, endIdx);
     const body = lines.slice(endIdx + 1).join("\n").replace(/^\n+/, "");
@@ -192,7 +191,10 @@ function parseFrontmatter(md: string): { frontmatter: Record<string, any>; body:
             }
 
             // Fallback: split by comma
-            const parts = inner.split(",").map((p) => p.trim()).filter(Boolean);
+            const parts = inner
+                .split(",")
+                .map((p) => p.trim())
+                .filter(Boolean);
             fm[key] = parts.map((p) => p.replace(/^"(.*)"$/, "$1").replace(/^'(.*)'$/, "$1"));
             continue;
         }
@@ -217,147 +219,152 @@ function parseFrontmatter(md: string): { frontmatter: Record<string, any>; body:
 }
 
 // ── LAB NOTES SOURCE (FRONTEND REPO) ────────────────────────
-const FRONTEND_REPO_DEFAULT = path.resolve(
-    process.cwd(),
-    "..",
-    "the-human-pattern-lab" // ← adjust if your repo name differs
-);
+const FRONTEND_REPO_DEFAULT = path.resolve(process.cwd(), "..", "the-human-pattern-lab");
 
 // where markdown actually lives in the frontend
-const LABNOTES_ROOT =
-    process.env.LABNOTES_ROOT
-        ? path.resolve(process.env.LABNOTES_ROOT)
-        : path.join(FRONTEND_REPO_DEFAULT, "src", "labnotes");
+const LABNOTES_ROOT = process.env.LABNOTES_ROOT
+    ? path.resolve(process.env.LABNOTES_ROOT)
+    : path.join(FRONTEND_REPO_DEFAULT, "src", "labnotes");
 
-
-// ── PREPARE DB OBJECTS (ASSUMES MIGRATOR ALREADY RUN IN APP) ─────────
-// Seed script should not create schema from scratch in your world,
-// but we DO ensure the few tables exist so dev seeding doesn’t explode.
+// ── PREPARE DB OBJECTS ─────────────────────────────────────
+// Ensure the tag table exists for dev seed safety
 db.exec(`
-  CREATE TABLE IF NOT EXISTS schema_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS schema_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 
-  CREATE TABLE IF NOT EXISTS lab_note_tags (
-    note_id TEXT NOT NULL,
-    tag TEXT NOT NULL,
-    UNIQUE(note_id, tag)
-  );
-  CREATE INDEX IF NOT EXISTS idx_lab_note_tags_note_id ON lab_note_tags(note_id);
-  CREATE INDEX IF NOT EXISTS idx_lab_note_tags_tag ON lab_note_tags(tag);
+    CREATE TABLE IF NOT EXISTS lab_note_tags (
+                                                 note_id TEXT NOT NULL,
+                                                 tag TEXT NOT NULL,
+                                                 UNIQUE(note_id, tag)
+    );
+    CREATE INDEX IF NOT EXISTS idx_lab_note_tags_note_id ON lab_note_tags(note_id);
+    CREATE INDEX IF NOT EXISTS idx_lab_note_tags_tag ON lab_note_tags(tag);
 `);
 
 // ── SQL STATEMENTS ─────────────────────────────────────────
-const insertNote = db.prepare(`
+
+// 🔎 Prefer identity by (slug, locale). If it exists, reuse id.
+// This prevents “slug edits” from forking new note identities.
+const findNoteBySlugLocale = db.prepare(`
+    SELECT id
+    FROM lab_notes
+    WHERE slug = ? AND locale = ?
+    LIMIT 1
+`);
+
+// Upsert by (slug, locale). Keeps pointers intact (we do NOT overwrite them here).
+const upsertNoteBySlugLocale = db.prepare(`
     INSERT INTO lab_notes (
-    id, group_id, slug, locale,
-    type, title,
-    category, excerpt, department_id,
-    shadow_density, safer_landing, read_time_minutes,
-    coherence_score, subtitle, summary,
-    tags_json, dept,
-    status, published_at,
-    author, ai_author,
-    source_locale, translation_status, translation_provider,
-    translation_version, source_updated_at, translation_meta_json,
-    content_html,
-    current_revision_id, published_revision_id,
-    created_at, updated_at
-  )
-  VALUES (
-    @id, @group_id, @slug, @locale,
-    @type, @title,
-    @category, @excerpt, @department_id,
-    @shadow_density, @safer_landing, @read_time_minutes,
-    @coherence_score, @subtitle, @summary,
-    @tags_json, @dept,
-    @status, @published_at,
-    @author, @ai_author,
-    @source_locale, @translation_status, @translation_provider,
-    @translation_version, @source_updated_at, @translation_meta_json,
-    @content_html,
-    NULL, NULL,
-    @created_at, @updated_at
-  )
-    ON CONFLICT(id) DO UPDATE SET
-      group_id=excluded.group_id,
-      slug=excluded.slug,
-      locale=excluded.locale,
-      type=excluded.type,
-      title=excluded.title,
-      category=excluded.category,
-      excerpt=excluded.excerpt,
-      department_id=excluded.department_id,
-      shadow_density=excluded.shadow_density,
-      safer_landing=excluded.safer_landing,
-      read_time_minutes=excluded.read_time_minutes,
-      subtitle=excluded.subtitle,
-      summary=excluded.summary,
-      tags_json=excluded.tags_json,
-      dept=excluded.dept,
-      status=excluded.status,
-      published_at=excluded.published_at,
-      author=excluded.author,
-      ai_author=excluded.ai_author,
-      content_html=excluded.content_html,
-      updated_at=excluded.updated_at;
+        id, group_id, slug, locale,
+        type, title,
+        category, excerpt, department_id,
+        shadow_density, safer_landing, read_time_minutes,
+        coherence_score, subtitle, summary,
+        tags_json, dept,
+        status, published_at,
+        author, ai_author,
+        source_locale, translation_status, translation_provider,
+        translation_version, source_updated_at, translation_meta_json,
+        content_html,
+        created_at, updated_at
+    )
+    VALUES (
+               @id, @group_id, @slug, @locale,
+               @type, @title,
+               @category, @excerpt, @department_id,
+               @shadow_density, @safer_landing, @read_time_minutes,
+               @coherence_score, @subtitle, @summary,
+               @tags_json, @dept,
+               @status, @published_at,
+               @author, @ai_author,
+               @source_locale, @translation_status, @translation_provider,
+               @translation_version, @source_updated_at, @translation_meta_json,
+               @content_html,
+               @created_at, @updated_at
+           )
+    ON CONFLICT(slug, locale) DO UPDATE SET
+                                            group_id=excluded.group_id,
+                                            type=excluded.type,
+                                            title=excluded.title,
+                                            category=excluded.category,
+                                            excerpt=excluded.excerpt,
+                                            department_id=excluded.department_id,
+                                            shadow_density=excluded.shadow_density,
+                                            safer_landing=excluded.safer_landing,
+                                            read_time_minutes=excluded.read_time_minutes,
+                                            coherence_score=excluded.coherence_score,
+                                            subtitle=excluded.subtitle,
+                                            summary=excluded.summary,
+                                            tags_json=excluded.tags_json,
+                                            dept=excluded.dept,
+
+                                            -- ⚠️ Status/published_at are file-driven here. If you want “admin is source of truth”
+                                            -- for status, change these two lines to preserve existing values instead.
+                                            status=excluded.status,
+                                            published_at=excluded.published_at,
+
+                                            author=excluded.author,
+                                            ai_author=excluded.ai_author,
+                                            content_html=excluded.content_html,
+                                            updated_at=excluded.updated_at
 `);
 
 const getPointer = db.prepare(`
-  SELECT current_revision_id AS cur
-  FROM lab_notes
-  WHERE id = ?
+    SELECT current_revision_id AS cur
+    FROM lab_notes
+    WHERE id = ?
+`);
+
+const getLatestRevision = db.prepare(`
+    SELECT id, revision_num, content_hash, length(content_markdown) AS md_len
+    FROM lab_note_revisions
+    WHERE note_id = ?
+    ORDER BY revision_num DESC
+    LIMIT 1
 `);
 
 const insertRevision = db.prepare(`
-  INSERT INTO lab_note_revisions (
-    id, note_id, revision_num, supersedes_revision_id,
-    frontmatter_json, content_markdown, content_hash,
-    schema_version, source,
-    intent, intent_version,
-    scope_json, side_effects_json, reversible,
-    auth_type, scopes_json,
-    reasoning_json,
-    created_at
-  )
-  VALUES (
-    @id, @note_id, @revision_num, NULL,
-    @frontmatter_json, @content_markdown, @content_hash,
-    @schema_version, @source,
-    @intent, @intent_version,
-    @scope_json, @side_effects_json, @reversible,
-    @auth_type, @scopes_json,
-    NULL,
-    @created_at
-  )
+    INSERT INTO lab_note_revisions (
+        id, note_id, revision_num, supersedes_revision_id,
+        frontmatter_json, content_markdown, content_hash,
+        schema_version, source,
+        intent, intent_version,
+        scope_json, side_effects_json, reversible,
+        auth_type, scopes_json,
+        reasoning_json,
+        created_at
+    )
+    VALUES (
+               @id, @note_id, @revision_num, @supersedes_revision_id,
+               @frontmatter_json, @content_markdown, @content_hash,
+               @schema_version, @source,
+               @intent, @intent_version,
+               @scope_json, @side_effects_json, @reversible,
+               @auth_type, @scopes_json,
+               NULL,
+               @created_at
+           )
 `);
 
 const setPointers = db.prepare(`
-  UPDATE lab_notes
-  SET current_revision_id = @rev,
-      published_revision_id = COALESCE(published_revision_id, @rev),
-      updated_at = @now
-  WHERE id = @id
+    UPDATE lab_notes
+    SET current_revision_id = @rev,
+        published_revision_id = COALESCE(published_revision_id, @rev),
+        updated_at = @now
+    WHERE id = @id
 `);
 
 const insertTag = db.prepare(`
-  INSERT OR IGNORE INTO lab_note_tags (note_id, tag)
-  VALUES (?, ?)
+    INSERT OR IGNORE INTO lab_note_tags (note_id, tag)
+    VALUES (?, ?)
 `);
 
 // ── SEED FROM FILES ────────────────────────────────────────
-type FileSeed = {
-    locale: string;
-    filePath: string;
-    slug: string;
-    id: string;
-    title: string;
-};
-
 function listMarkdownFiles(locale: string): string[] {
     const dir = path.join(LABNOTES_ROOT, locale);
-
     if (!fs.existsSync(dir)) return [];
 
-    return fs.readdirSync(dir)
+    return fs
+        .readdirSync(dir)
         .filter((f) => f.toLowerCase().endsWith(".md"))
         .map((f) => path.join(dir, f));
 }
@@ -394,8 +401,8 @@ function readAndNormalize(filePath: string, locale: string): {
     const filenameSlug = path.basename(filePath).replace(/\.md$/i, "");
     const slug = asString(frontmatter.slug, filenameSlug);
 
-    // group_id: keep translations together; default to noteId
-    const baseId = asString(frontmatter.id, slug);     // stable across translations
+    // group_id: keep translations together; default to stable baseId
+    const baseId = asString(frontmatter.id, slug); // stable across translations
     const groupId = asString(frontmatter.group_id, baseId);
 
     // ✅ unique row per locale
@@ -406,20 +413,23 @@ function readAndNormalize(filePath: string, locale: string): {
 
     const dept = frontmatter.dept ? asString(frontmatter.dept) : null;
     const department_id =
-        frontmatter.department_id ? asString(frontmatter.department_id)
-            : dept ? dept
+        frontmatter.department_id
+            ? asString(frontmatter.department_id)
+            : dept
+                ? dept
                 : null;
 
     const tags = asStringArray(frontmatter.tags);
     const status = asString(frontmatter.status, frontmatter.published ? "published" : "draft");
-
     const published_at = frontmatter.published ? asString(frontmatter.published) : null;
 
     const shadow_density = asNumber(frontmatter.shadow_density, 4);
     const safer_landing = asBool(frontmatter.safer_landing, true);
 
-    const read_time_minutes =
-        asNumber(frontmatter.readingTime, asNumber(frontmatter.read_time_minutes, 5));
+    const read_time_minutes = asNumber(
+        frontmatter.readingTime,
+        asNumber(frontmatter.read_time_minutes, 5)
+    );
 
     const excerpt = frontmatter.excerpt ? asString(frontmatter.excerpt) : null;
     const summary = frontmatter.summary ? asString(frontmatter.summary) : null;
@@ -427,13 +437,15 @@ function readAndNormalize(filePath: string, locale: string): {
     const category = frontmatter.category ? asString(frontmatter.category) : null;
 
     const author = frontmatter.author ? asString(frontmatter.author) : null;
-    const ai_author =
-        (frontmatter.ai_author ? asString(frontmatter.ai_author) :
-            (frontmatter.aiAuthor ? asString(frontmatter.aiAuthor) : null));
+    const ai_author = frontmatter.ai_author
+        ? asString(frontmatter.ai_author)
+        : frontmatter.aiAuthor
+            ? asString(frontmatter.aiAuthor)
+            : null;
 
-    // We store the whole markdown file as content_markdown (frontmatter included).
+    // Ledger truth: markdown body only (frontmatter snapshot stored separately)
     const markdown = body;
-    // frontmatter_json stored separately in revisions (canonical snapshot)
+
     const fmSnapshot = {
         ...frontmatter,
         id: noteId,
@@ -447,9 +459,11 @@ function readAndNormalize(filePath: string, locale: string): {
         status,
         published: published_at ?? undefined,
     };
+
     const frontmatterJson = JSON.stringify(fmSnapshot);
     const canonical = `${frontmatterJson}\n---\n${body}`;
     const contentHash = sha256Hex(canonical);
+
     const contentHtml = md.render(body);
 
     return {
@@ -479,6 +493,7 @@ function readAndNormalize(filePath: string, locale: string): {
     };
 }
 
+// ── COLLECT FILES ──────────────────────────────────────────
 const locales = listLocales();
 const files: Array<{ locale: string; filePath: string }> = [];
 
@@ -493,18 +508,30 @@ if (files.length === 0) {
     process.exit(0);
 }
 
+// ── TRANSACTION ────────────────────────────────────────────
 const tx = db.transaction(() => {
     let seeded = 0;
     let skipped = 0;
+    let pointerRepaired = 0;
+    let emptyBodySkipped = 0;
 
     for (const f of files) {
         const ts = nowIso();
-
         const normalized = readAndNormalize(f.filePath, f.locale);
 
-        // Ensure metadata row exists
-        insertNote.run({
-            id: normalized.noteId,
+        // ------------------------------------------------------------
+        // Identity resolution: reuse existing row for (slug, locale)
+        // Prevents “slug changes” from forking identities.
+        // ------------------------------------------------------------
+        const existing = findNoteBySlugLocale.get(normalized.slug, f.locale) as { id: string } | undefined;
+
+        const effectiveNoteId = existing?.id ?? normalized.noteId;
+
+        // ------------------------------------------------------------
+        // Upsert note metadata by (slug, locale) — pointers preserved
+        // ------------------------------------------------------------
+        upsertNoteBySlugLocale.run({
+            id: effectiveNoteId,
             group_id: normalized.groupId,
             slug: normalized.slug,
             locale: f.locale,
@@ -546,23 +573,80 @@ const tx = db.transaction(() => {
         });
 
         // Tags table (optional but nice)
-        for (const tag of normalized.tags) insertTag.run(normalized.noteId, tag);
+        for (const tag of normalized.tags) insertTag.run(effectiveNoteId, tag);
 
-        // If already has a current revision, skip (idempotent)
-        const pointer = getPointer.get(normalized.noteId) as { cur?: string } | undefined;
-        if (pointer?.cur) {
-            skipped++;
+        // ------------------------------------------------------------
+        // Ledger seed guardrails:
+        // - Never create empty revisions
+        // - Never duplicate (note_id, revision_num)
+        // - Repair pointers if revisions exist but current_revision_id missing
+        // ------------------------------------------------------------
+        const mdBody = normalized.markdown?.trim() ?? "";
+        if (!mdBody) {
+            emptyBodySkipped++;
             continue;
         }
 
+        const latest = getLatestRevision.get(effectiveNoteId) as
+            | { id: string; revision_num: number; content_hash: string; md_len: number }
+            | undefined;
+
+        // If any revision already exists, never try to reinsert revision_num=1.
+        if (latest) {
+            // If pointer missing but ledger exists, repair pointer to latest non-empty revision.
+            const pointer = getPointer.get(effectiveNoteId) as { cur?: string } | undefined;
+            if (!pointer?.cur && (latest.md_len ?? 0) > 0) {
+                setPointers.run({ rev: latest.id, now: ts, id: effectiveNoteId });
+                pointerRepaired++;
+                continue;
+            }
+
+            // If latest revision matches this file’s canonical content, do nothing.
+            if (latest.content_hash === normalized.contentHash && (latest.md_len ?? 0) > 0) {
+                skipped++;
+                continue;
+            }
+
+            // If you DO NOT want seed to append revisions on changes, flip this to:
+            // skipped++; continue;
+            const revisionId = crypto.randomUUID();
+            const nextNum = Number(latest.revision_num) + 1;
+
+            insertRevision.run({
+                id: revisionId,
+                note_id: effectiveNoteId,
+                revision_num: nextNum,
+                supersedes_revision_id: latest.id,
+                frontmatter_json: normalized.frontmatterJson,
+                content_markdown: mdBody,
+                content_hash: normalized.contentHash,
+                schema_version: "0.1",
+                source: "import",
+                intent: "seed_from_files",
+                intent_version: "1",
+                scope_json: JSON.stringify(["files"]),
+                side_effects_json: JSON.stringify(["append_revision"]),
+                reversible: 1,
+                auth_type: "human_session",
+                scopes_json: JSON.stringify([]),
+                created_at: ts,
+            });
+
+            setPointers.run({ rev: revisionId, now: ts, id: effectiveNoteId });
+            seeded++;
+            continue;
+        }
+
+        // No revisions exist yet → create initial revision_num=1
         const revisionId = crypto.randomUUID();
 
         insertRevision.run({
             id: revisionId,
-            note_id: normalized.noteId,
+            note_id: effectiveNoteId,
             revision_num: 1,
+            supersedes_revision_id: null,
             frontmatter_json: normalized.frontmatterJson,
-            content_markdown: normalized.markdown,
+            content_markdown: mdBody,
             content_hash: normalized.contentHash,
             schema_version: "0.1",
             source: "import",
@@ -576,12 +660,14 @@ const tx = db.transaction(() => {
             created_at: ts,
         });
 
-        setPointers.run({ rev: revisionId, now: ts, id: normalized.noteId });
+        setPointers.run({ rev: revisionId, now: ts, id: effectiveNoteId });
         seeded++;
     }
 
     console.log(`✅ Seeded ${seeded} notes from files`);
-    if (skipped > 0) console.log(`↩️ Skipped ${skipped} (already had current_revision_id)`);
+    if (skipped > 0) console.log(`↩️ Skipped ${skipped} (no content change / already current)`);
+    if (pointerRepaired > 0) console.log(`🧷 Repaired ${pointerRepaired} missing pointer(s)`);
+    if (emptyBodySkipped > 0) console.log(`🕳️ Skipped ${emptyBodySkipped} (empty markdown body)`);
 });
 
 tx();
