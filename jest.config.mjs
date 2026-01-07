@@ -13,11 +13,12 @@ export default {
         "^.+\\.ts$": ["ts-jest", { useESM: true, tsconfig: "tsconfig.json" }],
     },
 
-    moduleNameMapper: {
-        // ✅ Path alias: "@/x" -> "<rootDir>/src/x"
-        "^@/(.*)$": path.join(__dirname, "src/$1"),
+    // ✅ add this
+    setupFiles: ["<rootDir>/tests/jest.setup.ts"],
 
-        // ✅ ESM ".js" import fix (keep this)
+    moduleNameMapper: {
+        "^@/(.*)$": path.join(__dirname, "src/$1"),
         "^(\\.{1,2}/.*)\\.js$": "$1",
     },
 };
+
