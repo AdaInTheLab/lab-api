@@ -3,6 +3,7 @@ import type { Request, Response } from "express";
 import type Database from "better-sqlite3";
 import { randomUUID } from "node:crypto";
 import passport, { requireAdmin, isGithubOAuthEnabled } from "../auth.js";
+import { syncLabNotesFromFs } from "../services/syncLabNotesFromFs.js";
 import { normalizeLocale, sha256Hex } from "../lib/helpers.js";
 
 export function registerAdminRoutes(app: any, db: Database.Database) {
@@ -397,6 +398,18 @@ export function registerAdminRoutes(app: any, db: Database.Database) {
         }
     });
 
+
+    // ---------------------------------------------------------------------------
+    // Admin: Syncs MD Files to DB (protected)
+    // ---------------------------------------------------------------------------
+    app.post("/admin/notes/sync", requireAdmin, (req: any, res: { json: (arg0: { rootDir: string; locales: string[]; scanned: number; upserted: number; skipped: number; errors: Array<{ file: string; error: string; }>; ok: boolean; }) => void; status: (arg0: number) => { (): any; new(): any; json: { (arg0: { ok: boolean; error: any; }): void; new(): any; }; }; }) => {
+        try {
+            const result = syncLabNotesFromFs(db);
+            res.json({ ok: true, ...result });
+        } catch (e: any) {
+            res.status(500).json({ ok: false, error: e?.message ?? String(e) });
+        }
+    });
 
     // ---------------------------------------------------------------------------
     // Auth helpers (always available)
