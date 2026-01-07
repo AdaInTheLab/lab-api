@@ -32,6 +32,7 @@
     "express": "^5.2.1",
     "express-openapi-validator": "^5.6.0",
     "express-session": "^1.18.2",
+    "gray-matter": "^4.0.3",
     "marked": "^17.0.1",
     "passport": "^0.7.0",
     "passport-github2": "^0.1.12"
