@@ -52,6 +52,9 @@ function nowIso(): string {
 }
 
 export function syncLabNotesFromFs(db: Database.Database): SyncCounts {
+    //TODO: TEMP
+    console.log("[SYNC] LABNOTES_DIR =", process.env.LABNOTES_DIR);
+
     const rootDir = String(process.env.LABNOTES_DIR || "").trim();
     if (!rootDir) throw new Error("LABNOTES_DIR is not set");
     if (!fs.existsSync(rootDir)) throw new Error(`LABNOTES_DIR not found: ${rootDir}`);
