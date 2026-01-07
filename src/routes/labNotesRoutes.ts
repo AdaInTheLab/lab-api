@@ -3,7 +3,7 @@ import type { Request, Response } from "express";
 import type Database from "better-sqlite3";
 import type { LabNoteRecord, TagResult } from "../types/labNotes.js";
 import { mapToLabNotePreview, mapToLabNoteView } from "../mappers/labNotesMapper.js";
-import { normalizeLocale } from "../lib/helpers.js";
+import { normalizeLocale, inferLocale } from "../lib/helpers.js";
 
 // Markdown -> HTML for public rendering
 import { marked } from "marked"; // npm i marked
@@ -73,24 +73,54 @@ export function registerLabNotesRoutes(app: any, db: Database.Database) {
     app.get("/lab-notes/:slug", (req: Request, res: Response) => {
         try {
             const slug = String(req.params.slug ?? "").trim();
-            const locale = normalizeLocale(req.query.locale);
+            const locale = inferLocale(req);
 
             if (!slug) return res.status(400).json({ error: "slug is required" });
 
-            const row = db.prepare(`
-        SELECT
-          id, slug, locale, type, status,
-          title, subtitle, summary, excerpt, category,
-          department_id, dept, shadow_density, coherence_score,
-          safer_landing, read_time_minutes,
-          published_at, created_at, updated_at,
-          content_markdown
-        FROM v_lab_notes
-        WHERE slug = ?
-          AND locale = ?
-          AND status = 'published'
-        LIMIT 1
-      `).get(slug, locale) as (LabNoteRecord & { content_markdown?: string }) | undefined;
+            const sql = `
+      SELECT
+        id, slug, locale, type, status,
+        title, subtitle, summary, excerpt, category,
+        department_id, dept, shadow_density, coherence_score,
+        safer_landing, read_time_minutes,
+        published_at, created_at, updated_at,
+        content_markdown
+      FROM v_lab_notes
+      WHERE slug = ?
+        AND locale = ?
+        AND status = 'published'
+      LIMIT 1
+    `;
+
+            // 1) canonical lookup: slug + locale column
+            let row = db.prepare(sql).get(slug, locale) as
+                | (LabNoteRecord & { content_markdown?: string })
+                | undefined;
+
+            // 2) legacy fallback: slug stored as "slug:locale"
+            if (!row) {
+                row = db.prepare(sql).get(`${slug}:${locale}`, locale) as
+                    | (LabNoteRecord & { content_markdown?: string })
+                    | undefined;
+            }
+
+            // 3) extra back-compat: if caller passed "slug:xx", split and try
+            if (!row && slug.includes(":")) {
+                const [baseSlug, maybeLocale] = slug.split(":", 2);
+                const inferred = normalizeLocale(maybeLocale);
+                const effectiveLocale = inferred && inferred !== "all" ? inferred : locale;
+
+                row = db.prepare(sql).get(baseSlug, effectiveLocale) as
+                    | (LabNoteRecord & { content_markdown?: string })
+                    | undefined;
+
+                // if that still fails, try the literal legacy format too
+                if (!row) {
+                    row = db.prepare(sql).get(`${baseSlug}:${effectiveLocale}`, effectiveLocale) as
+                        | (LabNoteRecord & { content_markdown?: string })
+                        | undefined;
+                }
+            }
 
             if (!row) return res.status(404).json({ error: "Not found" });
 
@@ -98,10 +128,8 @@ export function registerLabNotesRoutes(app: any, db: Database.Database) {
                 .prepare("SELECT tag FROM lab_note_tags WHERE note_id = ?")
                 .all(row.id) as TagResult[];
 
-            // Public output stays HTML-based if your UI expects that:
             const html = marked.parse(String(row.content_markdown ?? "")) as string;
 
-            // mapToLabNoteView currently expects content_html on the record.
             const noteForMapper = {
                 ...(row as any),
                 content_html: html,
@@ -114,6 +142,7 @@ export function registerLabNotesRoutes(app: any, db: Database.Database) {
             return res.status(500).json({ error: e?.message ?? "unknown" });
         }
     });
+
 
     // ---------------------------------------------------------------------------
     // Public Upsert — DISABLED

@@ -1,5 +1,7 @@
 // lib/helpers.ts
 import crypto from "crypto";
+import type { Request, Response } from "express";
+
 
 export function normalizeLocale(input: unknown) {
     const raw = String(input ?? "en").trim().toLowerCase();
@@ -14,6 +16,19 @@ export function normalizeLocale(input: unknown) {
 
     return "en";
 }
+
+export function inferLocale(req: Request): string {
+    const qp = normalizeLocale(req.query.locale);
+    if (qp && qp !== "all") return qp;
+
+    const al = String(req.get("accept-language") ?? "").toLowerCase();
+
+    if (al.startsWith("ko")) return "ko";
+    if (al.startsWith("en")) return "en";
+
+    return "en";
+}
+
 
 export function sha256Hex(input: string): string {
     return crypto.createHash("sha256").update(input, "utf8").digest("hex");
