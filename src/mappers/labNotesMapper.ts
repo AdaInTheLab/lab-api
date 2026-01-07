@@ -1,15 +1,24 @@
-import {LabNoteRecord, LabNoteView} from "../types/labNotes.js";
+// src/mappers/labNotesMapper.ts
+import { marked } from "marked";
+import type { LabNoteRecord } from "../types/labNotes.js";
 
-function deriveStatus(published: string): "published" | "draft" {
-    return published ? "published" : "draft";
-}
+/* ===========================================================
+   🧭 Lab Notes Mapper — Ledger-First Output
+   -----------------------------------------------------------
+   Responsibilities:
+   - Normalize DB/view records into stable API shapes
+   - Resolve content using ledger-first fields (content_markdown)
+   - Preserve legacy fallbacks (content_html) without relying on them
 
-function normalizeStatus(s?: "published" | "draft" | "archived" | null | undefined, published?: string): "published" | "draft" | "archived" {
-    const v = (s ?? "").toLowerCase();
-    if (v === "published" || v === "draft" || v === "archived") return v;
-    return deriveStatus(published ?? "");
-}
+   Non-responsibilities:
+   - Persisting notes
+   - Syncing markdown
+   - Auth decisions
+   =========================================================== */
+
+type LabNoteStatus = "published" | "draft" | "archived";
 type LabNoteType = "labnote" | "paper" | "memo" | "lore" | "weather";
+
 const ALLOWED_NOTE_TYPES: ReadonlySet<LabNoteType> = new Set([
     "labnote",
     "paper",
@@ -18,13 +27,35 @@ const ALLOWED_NOTE_TYPES: ReadonlySet<LabNoteType> = new Set([
     "weather",
 ]);
 
-function deriveType(note: LabNoteRecord): LabNoteType {
-    // Prefer stored note.type if present
-    const raw = (note.type ?? "").toLowerCase() as LabNoteType;
+/**
+ * deriveStatus
+ * If status is missing/invalid, infer from publish timestamp.
+ */
+function deriveStatus(published: string): "published" | "draft" {
+    return published ? "published" : "draft";
+}
 
+/**
+ * normalizeStatus
+ * DB may contain null/invalid values in early migrations; normalize safely.
+ */
+function normalizeStatus(
+    s?: LabNoteStatus | null | undefined,
+    published?: string
+): LabNoteStatus {
+    const v = String(s ?? "").toLowerCase();
+    if (v === "published" || v === "draft" || v === "archived") return v;
+    return deriveStatus(published ?? "");
+}
+
+/**
+ * deriveType
+ * Prefer stored note.type; fall back to category-derived type if meaningful.
+ */
+function deriveType(note: LabNoteRecord): LabNoteType {
+    const raw = String(note.type ?? "").toLowerCase() as LabNoteType;
     if (raw && ALLOWED_NOTE_TYPES.has(raw)) return raw;
 
-    // Optional: derive from category if it has meaning
     if (note.category === "paper") return "paper";
     if (note.category === "memo") return "memo";
     if (note.category === "lore") return "lore";
@@ -32,27 +63,37 @@ function deriveType(note: LabNoteRecord): LabNoteType {
 
     return "labnote";
 }
-export function mapToLabNoteView(note: LabNoteRecord, tags: string[]): {
-    id: string;
-    slug: string;
-    title: string;
-    subtitle: string | undefined;
-    summary: string;
-    contentHtml: string;
-    published: string;
-    status: "published" | "draft" | "archived";
-    type: "labnote" | "paper" | "memo" | "lore" | "weather";
-    dept: string | undefined;
-    locale: string;
-    author: { kind: "human" | "ai" | "hybrid" } | undefined;
-    department_id: string;
-    shadow_density: number;
-    safer_landing: boolean;
-    tags: string[];
-    readingTime: number;
-    created_at: string | undefined;
-    updated_at: string | undefined
-} {
+
+/**
+ * resolveContentHtml
+ * Ledger-first content resolution:
+ * - Prefer v_lab_notes.content_markdown (already ledger-resolved)
+ * - Fallback to legacy lab_notes.content_html
+ * - Final fallback: migration placeholder
+ */
+function resolveContentHtml(note: LabNoteRecord): string {
+    // Ledger-first: markdown from v_lab_notes
+    const markdown = note.content_markdown?.trim();
+
+    if (markdown) {
+        return marked.parse(markdown) as string;
+    }
+
+    // Legacy fallback (v1 carryover)
+    const legacyHtml = note.content_html?.trim();
+    if (legacyHtml) {
+        return legacyHtml;
+    }
+
+    // Final safety net
+    return "<p>Content pending migration.</p>";
+}
+
+/**
+ * mapToLabNoteView
+ * Full note view (detail endpoint output).
+ */
+export function mapToLabNoteView(note: LabNoteRecord, tags: string[]) {
     const published = note.published_at ?? "";
 
     return {
@@ -63,7 +104,10 @@ export function mapToLabNoteView(note: LabNoteRecord, tags: string[]): {
         subtitle: note.subtitle ?? undefined,
         summary: note.excerpt ?? "",
 
-        contentHtml: note.content_html?.trim() || "<p>Content pending migration.</p>",
+        // ✅ Ledger-first content resolution
+        contentHtml: resolveContentHtml(note),
+
+        // ✅ Always present (empty string means “not published”)
         published,
 
         status: normalizeStatus(note.status, published),
@@ -92,27 +136,11 @@ export function mapToLabNoteView(note: LabNoteRecord, tags: string[]): {
     };
 }
 
-export function mapToLabNotePreview(note: LabNoteRecord, tags: string[]): {
-    id: string;
-    slug: string;
-    title: string;
-    subtitle: string | undefined;
-    summary: string;
-    contentHtml: string;
-    published: string;
-    status: "published" | "draft" | "archived";
-    type: "labnote" | "paper" | "memo" | "lore" | "weather";
-    dept: string | undefined;
-    locale: string;
-    author: { kind: "human" | "ai" | "hybrid" } | undefined;
-    department_id: string;
-    shadow_density: number;
-    safer_landing: boolean;
-    tags: string[];
-    readingTime: number;
-    created_at: string | undefined;
-    updated_at: string | undefined
-} {
+/**
+ * mapToLabNotePreview
+ * Preview shape for list/cards. Intentionally omits contentHtml.
+ */
+export function mapToLabNotePreview(note: LabNoteRecord, tags: string[]) {
     const published = note.published_at ?? "";
 
     return {
@@ -123,7 +151,9 @@ export function mapToLabNotePreview(note: LabNoteRecord, tags: string[]): {
         subtitle: note.subtitle ?? undefined,
         summary: note.excerpt ?? "",
 
+        // Previews never ship full content payload
         contentHtml: "",
+
         published,
 
         status: normalizeStatus(note.status, published),
@@ -151,5 +181,3 @@ export function mapToLabNotePreview(note: LabNoteRecord, tags: string[]): {
         updated_at: note.updated_at,
     };
 }
-
-

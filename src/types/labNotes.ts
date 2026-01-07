@@ -27,6 +27,10 @@ export interface LabNoteRecord {
     read_time_minutes?: number;
     published_at?: string;
 
+    // Ledger-first payload (from v_lab_notes)
+    content_markdown?: string | null;
+
+    // Legacy payload (v1 carryover; last-resort fallback only)
     content_html?: string | null;
 
     created_at?: string;
