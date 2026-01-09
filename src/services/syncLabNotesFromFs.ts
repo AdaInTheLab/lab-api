@@ -32,6 +32,23 @@ function sha256Hex(input: string): string {
     return crypto.createHash("sha256").update(input, "utf8").digest("hex");
 }
 
+/**
+ * Convert arbitrary JS values to types that better-sqlite3 can bind:
+ * numbers | strings | bigints | buffers | null
+ * - booleans become 0/1
+ * - objects/arrays become JSON strings
+ */
+function bindable(v: any) {
+    if (v === undefined || v === null) return null;
+    if (typeof v === "boolean") return v ? 1 : 0;
+    if (typeof v === "number") return Number.isFinite(v) ? v : null;
+    if (typeof v === "bigint") return v;
+    if (typeof v === "string") return v;
+    if (Buffer.isBuffer(v)) return v;
+    if (v instanceof Date) return v.toISOString();
+    return JSON.stringify(v);
+}
+
 function listMarkdownFilesRecursive(dir: string): string[] {
     if (!fs.existsSync(dir)) return [];
     const out: string[] = [];
@@ -51,10 +68,22 @@ function nowIso(): string {
     return new Date().toISOString();
 }
 
-export function syncLabNotesFromFs(db: Database.Database): SyncCounts {
-    //TODO: TEMP
-    console.log("[SYNC] LABNOTES_DIR =", process.env.LABNOTES_DIR);
+function safeString(v: any): string | null {
+    if (v === undefined || v === null) return null;
+    return String(v);
+}
 
+function jsonString(v: any, fallback: any): string {
+    // Always return a JSON string for json columns
+    const val = v === undefined ? fallback : v;
+    try {
+        return JSON.stringify(val);
+    } catch {
+        return JSON.stringify(fallback);
+    }
+}
+
+export function syncLabNotesFromFs(db: Database.Database): SyncCounts {
     const rootDir = String(process.env.LABNOTES_DIR || "").trim();
     if (!rootDir) throw new Error("LABNOTES_DIR is not set");
     if (!fs.existsSync(rootDir)) throw new Error(`LABNOTES_DIR not found: ${rootDir}`);
@@ -79,7 +108,7 @@ export function syncLabNotesFromFs(db: Database.Database): SyncCounts {
     };
 
     // -----------------------------
-    // SQL: identity + metadata upsert
+    // SQL: identity + metadata upsert (NAMED PARAMS)
     // - Does NOT clear published_at unless excluded.published_at is provided
     // - Does NOT touch status (human-controlled)
     // -----------------------------
@@ -93,19 +122,24 @@ export function syncLabNotesFromFs(db: Database.Database): SyncCounts {
       created_at, updated_at
     )
     VALUES (
-      COALESCE(?, lower(hex(randomblob(16)))),
-      COALESCE(NULLIF(?, ''), 'core'),
-      ?, LOWER(COALESCE(NULLIF(?, ''), 'en')),
-      COALESCE(NULLIF(?, ''), 'labnote'),
-      COALESCE(NULLIF(?, ''), ''),
-      ?, ?, ?,
-      ?, ?, ?, ?,
-      ?, 
-      COALESCE(NULLIF(?, ''), strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      COALESCE(@id, lower(hex(randomblob(16)))),
+      COALESCE(NULLIF(@group_id, ''), 'core'),
+      @slug,
+      LOWER(COALESCE(NULLIF(@locale, ''), 'en')),
+      COALESCE(NULLIF(@type, ''), 'labnote'),
+      COALESCE(NULLIF(@title, ''), ''),
+      @category,
+      @excerpt,
+      @department_id,
+      @shadow_density,
+      @coherence_score,
+      @safer_landing,
+      @read_time_minutes,
+      @published_at,
+      COALESCE(NULLIF(@created_at, ''), strftime('%Y-%m-%dT%H:%M:%fZ','now')),
       strftime('%Y-%m-%dT%H:%M:%fZ','now')
     )
     ON CONFLICT(slug, locale) DO UPDATE SET
-      -- metadata is safe to update
       type=excluded.type,
       title=excluded.title,
       category=excluded.category,
@@ -140,6 +174,10 @@ export function syncLabNotesFromFs(db: Database.Database): SyncCounts {
     LIMIT 1
   `);
 
+    // -----------------------------
+    // SQL: revisions insert (NAMED PARAMS)
+    // We accept JSON fields as strings (already serialized)
+    // -----------------------------
     const insertRevision = db.prepare(`
     INSERT INTO lab_note_revisions (
       id, note_id,
@@ -153,15 +191,15 @@ export function syncLabNotesFromFs(db: Database.Database): SyncCounts {
       created_at
     )
     VALUES (
-      ?, ?,
-      ?, ?,
-      ?, ?, ?,
-      ?, 'import',
-      ?, '1',
-      '[]', '[]', 1,
-      'human_session', '[]',
-      NULL,
-      ?
+      @id, @note_id,
+      @revision_num, @supersedes_revision_id,
+      @frontmatter_json, @content_markdown, @content_hash,
+      @schema_version, @source,
+      @intent, @intent_version,
+      @scope_json, @side_effects_json, @reversible,
+      @auth_type, @scopes_json,
+      @reasoning_json,
+      @created_at
     )
   `);
 
@@ -186,17 +224,18 @@ export function syncLabNotesFromFs(db: Database.Database): SyncCounts {
 
             const slug = String(parsed.data.slug || slugFromFilename(filePath)).trim();
             const title = String(parsed.data.title || slug).trim();
-
-            const excerpt = parsed.data.excerpt ? String(parsed.data.excerpt).trim() : null;
-            const category = parsed.data.category ? String(parsed.data.category) : null;
-            const departmentId = parsed.data.department_id ? String(parsed.data.department_id) : null;
-
             const type = parsed.data.type ? String(parsed.data.type) : "labnote";
 
-            const shadowDensity = parsed.data.shadow_density ?? null;
-            const coherenceScore = parsed.data.coherence_score ?? null;
-            const saferLanding = parsed.data.safer_landing ?? null;
-            const readTimeMinutes = parsed.data.read_time_minutes ?? null;
+            // Frontmatter fields that land in lab_notes
+            const shadowDensity = bindable(parsed.data.shadow_density);
+            const coherenceScore = bindable(parsed.data.coherence_score);
+            const saferLanding = bindable(parsed.data.safer_landing);
+            const readTimeMinutes = bindable(parsed.data.read_time_minutes);
+
+            // These might be strings (preferred), but bindable makes them safe anyway
+            const excerpt = bindable(parsed.data.excerpt);
+            const category = bindable(parsed.data.category);
+            const departmentId = bindable(parsed.data.department_id);
 
             // ✅ Only set published_at if MD explicitly includes it
             const publishedAt = parsed.data.published_at ? String(parsed.data.published_at) : null;
@@ -205,23 +244,23 @@ export function syncLabNotesFromFs(db: Database.Database): SyncCounts {
             const markdown = String(parsed.content || "").trim();
 
             // 1) Ensure note registry row exists / metadata updated
-            upsertNote.run(
-                null, // id optional
-                parsed.data.group_id ? String(parsed.data.group_id) : "core",
+            upsertNote.run({
+                id: null,
+                group_id: parsed.data.group_id ? String(parsed.data.group_id) : "core",
                 slug,
                 locale,
                 type,
                 title,
                 category,
                 excerpt,
-                departmentId,
-                shadowDensity,
-                coherenceScore,
-                saferLanding,
-                readTimeMinutes,
-                publishedAt,
-                nowIso()
-            );
+                department_id: departmentId,
+                shadow_density: shadowDensity,
+                coherence_score: coherenceScore,
+                safer_landing: saferLanding,
+                read_time_minutes: readTimeMinutes,
+                published_at: publishedAt,
+                created_at: nowIso(),
+            });
             counts.upserted += 1;
 
             const noteRow = selectNote.get(slug, locale) as
@@ -242,7 +281,6 @@ export function syncLabNotesFromFs(db: Database.Database): SyncCounts {
             // 2) GUARD: Never create / advance to an empty-body revision
             if (!markdown) {
                 counts.emptyBodySkipped += 1;
-                // No revision insert. No pointer changes. Metadata-only sync is allowed.
                 return;
             }
 
@@ -263,18 +301,53 @@ export function syncLabNotesFromFs(db: Database.Database): SyncCounts {
             const nextNum = latest ? Number(latest.revision_num) + 1 : 1;
             const supersedes = latest ? latest.id : null;
 
-            insertRevision.run(
-                newRevId,
-                noteRow.id,
-                nextNum,
-                supersedes,
-                JSON.stringify(parsed.data ?? {}),
-                markdown,
-                hash,
-                "v1",
-                `sync:md:${slug}:${locale}`,
-                nowIso()
-            );
+            // We store the full frontmatter as JSON for traceability
+            const frontmatterJson = jsonString(parsed.data ?? {}, {});
+
+            // intent: allow string, otherwise store json-stringified
+            const intentVal =
+                typeof parsed.data?.intent === "string"
+                    ? parsed.data.intent
+                    : parsed.data?.intent != null
+                        ? JSON.stringify(parsed.data.intent)
+                        : `sync:md:${slug}:${locale}`; // ✅ default, never null
+
+            // Use common-ish frontmatter keys if present, default to []
+            const scopeJson = jsonString(parsed.data?.scope, []);
+            const sideEffectsJson = jsonString(parsed.data?.side_effects, []);
+            const scopesJson = jsonString(parsed.data?.scopes, []);
+
+            // reversible: boolean-ish -> 0/1
+            const reversible = bindable(parsed.data?.reversible) ?? 1;
+
+            // reasoning: allow string, otherwise JSON
+            const reasoningJson =
+                parsed.data?.reasoning == null
+                    ? null
+                    : typeof parsed.data.reasoning === "string"
+                        ? JSON.stringify({ text: parsed.data.reasoning })
+                        : JSON.stringify(parsed.data.reasoning);
+
+            insertRevision.run({
+                id: newRevId,
+                note_id: noteRow.id,
+                revision_num: nextNum,
+                supersedes_revision_id: supersedes,
+                frontmatter_json: frontmatterJson,
+                content_markdown: markdown,
+                content_hash: hash,
+                schema_version: "v1",
+                source: "import",
+                intent: intentVal,
+                intent_version: "1",
+                scope_json: scopeJson,
+                side_effects_json: sideEffectsJson,
+                reversible: reversible,
+                auth_type: "human_session",
+                scopes_json: scopesJson,
+                reasoning_json: reasoningJson,
+                created_at: nowIso(),
+            });
             counts.revisionsInserted += 1;
 
             // 5) Advance pointers ONLY to a non-empty revision (this one is guaranteed non-empty)
@@ -285,16 +358,20 @@ export function syncLabNotesFromFs(db: Database.Database): SyncCounts {
         }
     };
 
-    // Walk locales
-    if (localeDirs.length) {
-        for (const loc of localeDirs) {
-            const files = listMarkdownFilesRecursive(path.join(rootDir, loc));
-            for (const f of files) processFile(f, loc);
+    // Wrap in a transaction so you don't half-write if something explodes mid-sync
+    const syncTx = db.transaction(() => {
+        if (localeDirs.length) {
+            for (const loc of localeDirs) {
+                const files = listMarkdownFilesRecursive(path.join(rootDir, loc));
+                for (const f of files) processFile(f, loc);
+            }
+        } else {
+            const files = listMarkdownFilesRecursive(rootDir);
+            for (const f of files) processFile(f, "en");
         }
-    } else {
-        const files = listMarkdownFilesRecursive(rootDir);
-        for (const f of files) processFile(f, "en");
-    }
+    });
+
+    syncTx();
 
     return counts;
 }

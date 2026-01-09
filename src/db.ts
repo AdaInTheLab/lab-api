@@ -3,7 +3,6 @@ import Database from "better-sqlite3";
 import path from "path";
 import { fileURLToPath } from "url";
 import crypto from "crypto";
-import { marked } from "marked";
 import { env } from "./env.js";
 import { nowIso, sha256Hex } from './lib/helpers.js';
 import { migrateLabNotesSchema, LAB_NOTES_SCHEMA_VERSION } from "./db/migrateLabNotes.js";

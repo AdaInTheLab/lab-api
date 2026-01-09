@@ -4,9 +4,13 @@ import type Database from "better-sqlite3";
 import type { LabNoteRecord, TagResult } from "../types/labNotes.js";
 import { mapToLabNotePreview, mapToLabNoteView } from "../mappers/labNotesMapper.js";
 import { normalizeLocale, inferLocale } from "../lib/helpers.js";
+import { expandMascotBlocks } from "../lib/markdownBlocks.js";
+import { marked } from "marked";
 
-// Markdown -> HTML for public rendering
-import { marked } from "marked"; // npm i marked
+marked.setOptions({
+    gfm: true,
+    breaks: false, // ✅ strict
+});
 
 export function registerLabNotesRoutes(app: any, db: Database.Database) {
     // ---------------------------------------------------------------------------
@@ -23,32 +27,31 @@ export function registerLabNotesRoutes(app: any, db: Database.Database) {
       `;
 
             const sqlAll = `
-        SELECT
-          id, slug, locale, type, status,
-          title, subtitle, summary, excerpt,
-          department_id, dept, shadow_density, safer_landing, read_time_minutes,
-          published_at, created_at, updated_at
-        FROM v_lab_notes
-        WHERE status = 'published'
-        ${orderBy}
-      `;
+                SELECT
+                    id, slug, locale, type, status,
+                    title, subtitle, summary, excerpt,
+                    department_id, dept, shadow_density, safer_landing, read_time_minutes,
+                    published_at, created_at, updated_at
+                FROM v_lab_notes
+                WHERE status = 'published'
+                    ${orderBy}
+            `;
 
             const sqlByLocale = `
-        SELECT
-          id, slug, locale, type, status,
-          title, subtitle, summary, excerpt,
-          department_id, dept, shadow_density, safer_landing, read_time_minutes,
-          published_at, created_at, updated_at
-        FROM v_lab_notes
-        WHERE locale = ?
-          AND status = 'published'
-        ${orderBy}
-      `;
+                SELECT
+                    id, slug, locale, type, status,
+                    title, subtitle, summary, excerpt,
+                    department_id, dept, shadow_density, safer_landing, read_time_minutes,
+                    published_at, created_at, updated_at
+                FROM v_lab_notes
+                WHERE locale = ?
+                  AND status = 'published'
+                    ${orderBy}
+            `;
 
             const notes = (locale === "all"
-                    ? db.prepare(sqlAll).all()
-                    : db.prepare(sqlByLocale).all(locale)
-            ) as LabNoteRecord[];
+                ? db.prepare(sqlAll).all()
+                : db.prepare(sqlByLocale).all(locale)) as LabNoteRecord[];
 
             const mapped = notes.map((note) => {
                 const tagRows = db
@@ -78,19 +81,19 @@ export function registerLabNotesRoutes(app: any, db: Database.Database) {
             if (!slug) return res.status(400).json({ error: "slug is required" });
 
             const sql = `
-      SELECT
-        id, slug, locale, type, status,
-        title, subtitle, summary, excerpt, category,
-        department_id, dept, shadow_density, coherence_score,
-        safer_landing, read_time_minutes,
-        published_at, created_at, updated_at,
-        content_markdown
-      FROM v_lab_notes
-      WHERE slug = ?
-        AND locale = ?
-        AND status = 'published'
-      LIMIT 1
-    `;
+                SELECT
+                    id, slug, locale, type, status,
+                    title, subtitle, summary, excerpt, category,
+                    department_id, dept, shadow_density, coherence_score,
+                    safer_landing, read_time_minutes,
+                    published_at, created_at, updated_at,
+                    content_markdown
+                FROM v_lab_notes
+                WHERE slug = ?
+                  AND locale = ?
+                  AND status = 'published'
+                LIMIT 1
+            `;
 
             // 1) canonical lookup: slug + locale column
             let row = db.prepare(sql).get(slug, locale) as
@@ -114,7 +117,6 @@ export function registerLabNotesRoutes(app: any, db: Database.Database) {
                     | (LabNoteRecord & { content_markdown?: string })
                     | undefined;
 
-                // if that still fails, try the literal legacy format too
                 if (!row) {
                     row = db.prepare(sql).get(`${baseSlug}:${effectiveLocale}`, effectiveLocale) as
                         | (LabNoteRecord & { content_markdown?: string })
@@ -128,21 +130,28 @@ export function registerLabNotesRoutes(app: any, db: Database.Database) {
                 .prepare("SELECT tag FROM lab_note_tags WHERE note_id = ?")
                 .all(row.id) as TagResult[];
 
-            const html = marked.parse(String(row.content_markdown ?? "")) as string;
+            const markdown = String(row.content_markdown ?? "");
+            const expanded = expandMascotBlocks(markdown);
+            const html = marked.parse(expanded) as string;
 
             const noteForMapper = {
                 ...(row as any),
                 content_html: html,
             } as LabNoteRecord;
 
-            return res.json(mapToLabNoteView(noteForMapper, tagRows.map((t) => t.tag)));
+            const mapped = mapToLabNoteView(noteForMapper, tagRows.map((t) => t.tag));
+
+            return res.json({
+                ...mapped,
+                // ✅ canonical truth for “correct” clients
+                content_markdown: markdown,
+            });
         } catch (e: any) {
             console.error("GET /lab-notes/:slug failed:", e?.message);
             if (res.headersSent) return;
             return res.status(500).json({ error: e?.message ?? "unknown" });
         }
     });
-
 
     // ---------------------------------------------------------------------------
     // Public Upsert — DISABLED
