@@ -2,9 +2,16 @@
 import type { Request, Response } from "express";
 import type Database from "better-sqlite3";
 import { randomUUID } from "node:crypto";
+import { marked } from "marked";
 import passport, { requireAdmin, isGithubOAuthEnabled } from "../auth.js";
 import { syncLabNotesFromFs } from "../services/syncLabNotesFromFs.js";
 import { normalizeLocale, sha256Hex } from "../lib/helpers.js";
+
+marked.setOptions({
+    gfm: true,
+    breaks: false, // ✅ strict
+});
+
 
 export function registerAdminRoutes(app: any, db: Database.Database) {
     // Must match your UI origin exactly (no trailing slash)
@@ -121,12 +128,31 @@ export function registerAdminRoutes(app: any, db: Database.Database) {
 
             // ✅ Resolve canonical noteId by (slug, locale) to make upserts stable
             const existing = db
-                .prepare("SELECT id FROM lab_notes WHERE slug = ? AND locale = ?")
-                .get(slug, noteLocale) as { id: string } | undefined;
+                .prepare("SELECT id, department_id, dept, type FROM lab_notes WHERE slug = ? AND locale = ?")
+                .get(slug, noteLocale) as
+                | { id: string; department_id: string | null; dept: string | null; type: string | null }
+                | undefined;
 
             // If the row already exists, prefer its id over any incoming id.
             // This prevents “identity drift” where (slug, locale) updates a different id.
             const noteId = existing?.id ?? id ?? randomUUID();
+
+            const incomingDepartment =
+                typeof department_id === "string" && department_id.trim() ? department_id.trim() : null;
+
+            const incomingDept =
+                typeof dept === "string" && dept.trim() ? dept.trim() : null;
+
+            // Preserve existing if not provided, else default for brand-new notes
+            const resolvedDepartment =
+                incomingDepartment ?? existing?.department_id ?? "SCMS";
+
+            const resolvedDept =
+                incomingDept ?? existing?.dept ?? null;
+
+            // Type is identity-ish too; preserve if missing
+            const resolvedType =
+                (typeof type === "string" && type.trim() ? type.trim() : null) ?? existing?.type ?? "labnote";
 
             const tx = db.transaction(() => {
                 // 1) Upsert metadata row (NO content_html writes, NO content_markdown column)
@@ -151,11 +177,11 @@ export function registerAdminRoutes(app: any, db: Database.Database) {
                                                             title=excluded.title,
                                                             type=excluded.type,
                                                             status=excluded.status,
-                                                            dept=excluded.dept,
+                                                            dept = COALESCE(excluded.dept, lab_notes.dept),
                                                             category=excluded.category,
                                                             excerpt=excluded.excerpt,
                                                             summary=excluded.summary,
-                                                            department_id=excluded.department_id,
+                                                            department_id = COALESCE(excluded.department_id, lab_notes.department_id),
                                                             shadow_density=excluded.shadow_density,
                                                             coherence_score=excluded.coherence_score,
                                                             safer_landing=excluded.safer_landing,
@@ -176,7 +202,7 @@ export function registerAdminRoutes(app: any, db: Database.Database) {
                     excerpt || "",
                     summary || "",
 
-                    department_id || "SCMS",
+                    incomingDepartment,
                     shadow_density ?? 0,
                     coherence_score ?? 1.0,
                     safer_landing ? 1 : 0,
@@ -200,7 +226,7 @@ export function registerAdminRoutes(app: any, db: Database.Database) {
                 const nextRev = (revRow?.maxRev ?? 0) + 1;
 
                 // 4) Create revision row (ledger truth)
-                const revisionId = crypto.randomUUID();
+                const revisionId = randomUUID();
 
                 const prevPointer = db
                     .prepare(`
@@ -219,7 +245,7 @@ export function registerAdminRoutes(app: any, db: Database.Database) {
                     status: noteStatus,
                     published: normalizedPublishedAt ?? undefined,
                     dept: dept ?? null,
-                    department_id: department_id || "SCMS",
+                    department_id: resolvedDepartment,
                     shadow_density: shadow_density ?? 0,
                     coherence_score: coherence_score ?? 1.0,
                     safer_landing: Boolean(safer_landing),
@@ -342,57 +368,63 @@ export function registerAdminRoutes(app: any, db: Database.Database) {
     // ---------------------------------------------------------------------------
     // Admin: Publish Lab Note (protected)
     // ---------------------------------------------------------------------------
-    app.post("/admin/notes/:id/publish", requireAdmin, (req: Request, res: Response) => {
+    // Admin: Publish by slug + locale
+    app.post("/admin/notes/:slug/publish", requireAdmin, (req: Request, res: Response) => {
         try {
-            const id = String(req.params.id ?? "").trim();
-            if (!id) return res.status(400).json({ error: "id is required" });
+            const slug = String(req.params.slug ?? "").trim();
+            const locale = normalizeLocale(String(req.query.locale ?? "en"));
+            if (!slug) return res.status(400).json({ error: "slug is required" });
 
             const nowDate = new Date().toISOString().slice(0, 10);
 
-            const result = db
-                .prepare(
-                    `
-        UPDATE lab_notes
-        SET
-          status = 'published',
-          published_at = COALESCE(published_at, ?),
-          updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
-        WHERE id = ?
-      `
-                )
-                .run(nowDate, id);
+            const row = db
+                .prepare(`SELECT id FROM lab_notes WHERE slug = ? AND locale = ? LIMIT 1`)
+                .get(slug, locale) as { id: string } | undefined;
 
-            if (result.changes === 0) return res.status(404).json({ error: "Not found" });
-            return res.json({ ok: true, id, status: "published" });
+            if (!row) return res.status(404).json({ error: "Not found" });
+
+            db.prepare(`
+      UPDATE lab_notes
+      SET
+        status = 'published',
+        published_revision_id = current_revision_id,
+        published_at = COALESCE(published_at, ?),
+        updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
+      WHERE id = ?
+    `).run(nowDate, row.id);
+
+            return res.json({ ok: true, slug, locale, id: row.id, status: "published" });
         } catch (e: any) {
             return res.status(500).json({ error: "Database error", details: String(e?.message ?? e) });
         }
     });
 
-
     // ---------------------------------------------------------------------------
     // Admin: Un-publish Lab Note (protected)
     // ---------------------------------------------------------------------------
-    app.post("/admin/notes/:id/unpublish", requireAdmin, (req: Request, res: Response) => {
+    app.post("/admin/notes/:slug/unpublish", requireAdmin, (req: Request, res: Response) => {
         try {
-            const id = String(req.params.id ?? "").trim();
-            if (!id) return res.status(400).json({ error: "id is required" });
+            const slug = String(req.params.slug ?? "").trim();
+            const locale = normalizeLocale(String(req.query.locale ?? "en"));
+            if (!slug) return res.status(400).json({ error: "slug is required" });
 
-            const result = db
-                .prepare(
-                    `
-                    UPDATE lab_notes
-                    SET
-                      status = 'draft',
-                      published_at = NULL,
-                      updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
-                    WHERE id = ?
-                  `
-                )
-                .run(id);
+            const row = db
+                .prepare(`SELECT id FROM lab_notes WHERE slug = ? AND locale = ? LIMIT 1`)
+                .get(slug, locale) as { id: string } | undefined;
 
-            if (result.changes === 0) return res.status(404).json({ error: "Not found" });
-            return res.json({ ok: true, id, status: "draft" });
+            if (!row) return res.status(404).json({ error: "Not found" });
+
+            db.prepare(`
+      UPDATE lab_notes
+      SET
+        status = 'draft',
+        published_revision_id = NULL,
+        published_at = NULL,
+        updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
+      WHERE id = ?
+    `).run(row.id);
+
+            return res.json({ ok: true, slug, locale, id: row.id, status: "draft" });
         } catch (e: any) {
             return res.status(500).json({ error: "Database error", details: String(e?.message ?? e) });
         }

@@ -27,6 +27,11 @@ const ALLOWED_NOTE_TYPES: ReadonlySet<LabNoteType> = new Set([
     "weather",
 ]);
 
+marked.setOptions({
+    gfm: true,
+    breaks: false, // ✅ strict
+});
+
 /**
  * deriveStatus
  * If status is missing/invalid, infer from publish timestamp.
