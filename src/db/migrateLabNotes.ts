@@ -17,7 +17,7 @@ import crypto from "crypto";
  * If content appears stale or "reverts", check views FIRST.
  */
 
-export const LAB_NOTES_SCHEMA_VERSION = 9;
+export const LAB_NOTES_SCHEMA_VERSION = 10;
 
 function setLabNotesSchemaVersion(db: Database.Database, version: number) {
     const cur = db
@@ -563,6 +563,37 @@ export function migrateLabNotesSchema(
   `);
     }
 
+// ---- v10: remove legacy UNIQUE(slug) constraints (keep UNIQUE(slug, locale)) ----
+    if (prevVersion < 10) {
+        // Find any UNIQUE indexes that cover slug only (legacy) and drop them.
+        // We keep uq_lab_notes_slug_locale (or recreate it if missing).
+        const indexes = db
+            .prepare(`PRAGMA index_list('lab_notes')`)
+            .all() as Array<{ name: string; unique: number }>;
+
+        for (const idx of indexes) {
+            if (!idx.unique) continue;
+
+            const cols = db
+                .prepare(`PRAGMA index_info('${idx.name.replace(/'/g, "''")}')`)
+                .all() as Array<{ name: string }>;
+
+            const colNames = cols.map((c) => c.name);
+            const isSlugOnly = colNames.length === 1 && colNames[0] === "slug";
+
+            // Drop legacy slug-only uniqueness (this is what is causing your error)
+            if (isSlugOnly) {
+                db.exec(`DROP INDEX IF EXISTS ${idx.name};`);
+                log?.(`[db] dropped legacy unique index on slug: ${idx.name}`);
+            }
+        }
+
+        // Ensure the correct uniqueness exists
+        db.exec(`
+    CREATE UNIQUE INDEX IF NOT EXISTS uq_lab_notes_slug_locale
+    ON lab_notes(slug, locale);
+  `);
+    }
 
 
     // ⚠️ WARNING ⚠️
