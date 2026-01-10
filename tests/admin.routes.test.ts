@@ -1,5 +1,8 @@
 import request from "supertest";
 import { createTestApp, api } from "./helpers/createTestApp.js";
+import fs from "fs";
+import os from "os";
+import path from "path";
 
 describe("Admin routes", () => {
     const OLD_ENV = { ...process.env };
@@ -133,5 +136,83 @@ describe("Admin routes", () => {
             expect(matches[0].title).toBe("Version 2");
             expect(matches[0].summary).toBe("two");
         });
+
+        test("POST /admin/notes/sync protects admin (web) current revision unless forced", async () => {
+            const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "labnotes-"));
+            process.env.LABNOTES_DIR = tmp;
+
+            const localeDir = path.join(tmp, "en");
+            fs.mkdirSync(localeDir, { recursive: true });
+
+            const { app, db } = createTestApp();
+
+            // 1) Create admin draft (current revision should be source='web')
+            const slug = "sync-protect-me";
+            const locale = "en";
+
+            const create = await request(app).post(api("/admin/notes")).send({
+                title: "Admin Draft",
+                slug,
+                locale,
+                status: "draft",
+                contentMarkdown: "ADMIN VERSION", // use whatever field your admin route accepts
+            });
+
+            expect(create.status).toBe(201);
+
+            // 2) Write conflicting FS markdown for same slug/locale
+            const mdPath = path.join(localeDir, `${slug}.md`);
+            fs.writeFileSync(
+                mdPath,
+                [
+                    "---",
+                    `slug: ${slug}`,
+                    "title: FS Version",
+                    "type: labnote",
+                    "---",
+                    "",
+                    "FS VERSION",
+                    "",
+                ].join("\n"),
+                "utf8"
+            );
+
+            // Helper: read current revision source for the note
+            const getCurrentSource = () => {
+                const row = db
+                    .prepare(
+                        `
+        SELECT r.source AS source
+        FROM lab_notes n
+        JOIN lab_note_revisions r ON r.id = n.current_revision_id
+        WHERE n.slug = ? AND n.locale = ?
+        LIMIT 1
+      `
+                    )
+                    .get(slug, locale) as { source: string } | undefined;
+
+                return row?.source ?? null;
+            };
+
+            expect(getCurrentSource()).toBe("web");
+
+            // 3) Sync WITHOUT force -> should NOT clobber web pointer
+            const s1 = await request(app).post(api("/admin/notes/sync"));
+            expect(s1.status).toBe(200);
+            expect(s1.body?.ok).toBe(true);
+
+            // the key behavior change
+            expect(s1.body?.pointersSkippedProtected).toBeGreaterThanOrEqual(1);
+            expect(getCurrentSource()).toBe("web");
+
+            // 4) Sync WITH force -> should advance pointer to import
+            const s2 = await request(app).post(api("/admin/notes/sync?force=1"));
+            expect(s2.status).toBe(200);
+            expect(s2.body?.ok).toBe(true);
+
+            expect(getCurrentSource()).toBe("import");
+            expect(s2.body?.pointersForced).toBeGreaterThanOrEqual(1);
+        });
+
     });
 });

@@ -5,7 +5,7 @@ import crypto from "node:crypto";
 import matter from "gray-matter";
 import type Database from "better-sqlite3";
 
-type SyncCounts = {
+export type SyncCounts = {
     rootDir: string;
     locales: string[];
     scanned: number;
@@ -13,8 +13,11 @@ type SyncCounts = {
     skipped: number;
     revisionsInserted: number;
     pointersUpdated: number;
+    pointersSkippedProtected: number;
+    pointersForced: number;
     emptyBodySkipped: number;
     errors: Array<{ file: string; error: string }>;
+    protected: Array<{ slug: string; locale: string; reason: string }>;
 };
 
 /* ===========================================================
@@ -83,7 +86,11 @@ function jsonString(v: any, fallback: any): string {
     }
 }
 
-export function syncLabNotesFromFs(db: Database.Database): SyncCounts {
+export function syncLabNotesFromFs(
+    db: Database.Database,
+    opts?: { force?: boolean }
+): SyncCounts {
+    const force = Boolean(opts?.force);
     const rootDir = String(process.env.LABNOTES_DIR || "").trim();
     if (!rootDir) throw new Error("LABNOTES_DIR is not set");
     if (!fs.existsSync(rootDir)) throw new Error(`LABNOTES_DIR not found: ${rootDir}`);
@@ -103,8 +110,11 @@ export function syncLabNotesFromFs(db: Database.Database): SyncCounts {
         skipped: 0,
         revisionsInserted: 0,
         pointersUpdated: 0,
+        pointersSkippedProtected: 0,
+        pointersForced: 0,
         emptyBodySkipped: 0,
         errors: [],
+        protected: [],
     };
 
     // -----------------------------
@@ -167,10 +177,18 @@ export function syncLabNotesFromFs(db: Database.Database): SyncCounts {
   `);
 
     const selectLatestRevision = db.prepare(`
-    SELECT id, revision_num, content_hash, length(content_markdown) AS md_len
-    FROM lab_note_revisions
-    WHERE note_id = ?
-    ORDER BY revision_num DESC
+        SELECT id, revision_num, content_hash, length(content_markdown) AS md_len, source
+        FROM lab_note_revisions
+        WHERE note_id = ?
+        ORDER BY revision_num DESC
+        LIMIT 1
+    `);
+
+    const selectCurrentRevisionSource = db.prepare(`
+    SELECT r.source AS source
+    FROM lab_notes n
+    LEFT JOIN lab_note_revisions r ON r.id = n.current_revision_id
+    WHERE n.id = ?
     LIMIT 1
   `);
 
@@ -287,12 +305,20 @@ export function syncLabNotesFromFs(db: Database.Database): SyncCounts {
             const hash = sha256Hex(markdown);
 
             const latest = selectLatestRevision.get(noteRow.id) as
-                | { id: string; revision_num: number; content_hash: string; md_len: number }
+                | { id: string; revision_num: number; content_hash: string; md_len: number; source: string | null }
                 | undefined;
 
             // 3) Idempotency: if the latest revision already matches this body, do nothing
+            // 3) Idempotency: if the latest revision already matches this body, usually do nothing
             if (latest && latest.content_hash === hash && (latest.md_len ?? 0) > 0) {
-                counts.skipped += 1;
+                // But if we're forcing, we may still need to advance pointers to the latest import revision
+                if (force && latest.source === "import") {
+                    updatePointers.run(latest.id, latest.id, noteRow.id);
+                    counts.pointersUpdated += 1;
+                    counts.pointersForced += 1;
+                } else {
+                    counts.skipped += 1;
+                }
                 return;
             }
 
@@ -350,9 +376,43 @@ export function syncLabNotesFromFs(db: Database.Database): SyncCounts {
             });
             counts.revisionsInserted += 1;
 
-            // 5) Advance pointers ONLY to a non-empty revision (this one is guaranteed non-empty)
-            updatePointers.run(newRevId, newRevId, noteRow.id);
-            counts.pointersUpdated += 1;
+            // 5) Advance pointers ONLY if safe (and non-empty revision is already guaranteed)
+            const curSourceRow = selectCurrentRevisionSource.get(noteRow.id) as
+                | { source?: string | null }
+                | undefined;
+
+            const curSource = curSourceRow?.source ?? null;
+
+            // Safe-to-advance rules:
+            // - force=true: always advance (explicit override)
+            // - no current revision: new note, safe
+            // - current source is 'import': FS already owns the current draft
+            const canAdvance =
+                force ||
+                !noteRow.current_revision_id ||
+                curSource === "import";
+
+            if (canAdvance) {
+                updatePointers.run(newRevId, newRevId, noteRow.id);
+                counts.pointersUpdated += 1;
+
+                if (force && noteRow.current_revision_id && curSource !== "import") {
+                    counts.pointersForced += 1;
+                }
+            } else {
+                // Protected admin draft: we still inserted the import revision, but we don't switch pointers
+                counts.pointersSkippedProtected += 1;
+
+                // Optional: record protected items for UI/debug (cap it)
+                if (counts.protected.length < 50) {
+                    counts.protected.push({
+                        slug,
+                        locale,
+                        reason: `protected admin draft (current source=${curSource})`,
+                    });
+                }
+            }
+
         } catch (e: any) {
             counts.errors.push({ file: filePath, error: e?.message ?? String(e) });
         }
