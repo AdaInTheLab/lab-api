@@ -4,14 +4,13 @@ import type Database from "better-sqlite3";
 import { randomUUID } from "node:crypto";
 import { marked } from "marked";
 import passport, { requireAdmin, isGithubOAuthEnabled } from "../auth.js";
-import { syncLabNotesFromFs } from "../services/syncLabNotesFromFs.js";
+import { syncLabNotesFromFs, SyncCounts } from "../services/syncLabNotesFromFs.js";
 import { normalizeLocale, sha256Hex } from "../lib/helpers.js";
 
 marked.setOptions({
     gfm: true,
     breaks: false, // ✅ strict
 });
-
 
 export function registerAdminRoutes(app: any, db: Database.Database) {
     // Must match your UI origin exactly (no trailing slash)
@@ -434,14 +433,20 @@ export function registerAdminRoutes(app: any, db: Database.Database) {
     // ---------------------------------------------------------------------------
     // Admin: Syncs MD Files to DB (protected)
     // ---------------------------------------------------------------------------
-    app.post("/admin/notes/sync", requireAdmin, (req: any, res: { json: (arg0: { rootDir: string; locales: string[]; scanned: number; upserted: number; skipped: number; errors: Array<{ file: string; error: string; }>; ok: boolean; }) => void; status: (arg0: number) => { (): any; new(): any; json: { (arg0: { ok: boolean; error: any; }): void; new(): any; }; }; }) => {
+    app.post("/admin/notes/sync", requireAdmin, (req: Request, res: Response) => {
         try {
-            const result = syncLabNotesFromFs(db);
+            const force =
+                String(req.query.force ?? "").trim() === "1" ||
+                req.body?.force === true ||
+                String(req.body?.force ?? "").trim() === "1";
+
+            const result: SyncCounts = syncLabNotesFromFs(db, { force });
             res.json({ ok: true, ...result });
         } catch (e: any) {
             res.status(500).json({ ok: false, error: e?.message ?? String(e) });
         }
     });
+
 
     // ---------------------------------------------------------------------------
     // Auth helpers (always available)
