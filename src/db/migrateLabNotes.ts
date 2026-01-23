@@ -17,7 +17,7 @@ import crypto from "crypto";
  * If content appears stale or "reverts", check views FIRST.
  */
 
-export const LAB_NOTES_SCHEMA_VERSION = 10;
+export const LAB_NOTES_SCHEMA_VERSION = 11;
 
 function setLabNotesSchemaVersion(db: Database.Database, version: number) {
     const cur = db
@@ -127,6 +127,7 @@ export function migrateLabNotesSchema(
 
         { name: "tags_json", ddl: "TEXT" },
         { name: "dept", ddl: "TEXT" },
+        { name: "card_style", ddl: "TEXT" },
 
         // Publishing
         { name: "status", ddl: "TEXT NOT NULL DEFAULT 'draft'" },
@@ -356,7 +357,8 @@ export function migrateLabNotesSchema(
 
         tags_json TEXT,
         dept TEXT,
-
+        card_style TEXT,
+        
         status TEXT NOT NULL,
         published_at TEXT,
 
@@ -385,7 +387,7 @@ export function migrateLabNotesSchema(
         category, excerpt, department_id,
         shadow_density, safer_landing, read_time_minutes,
         coherence_score, subtitle, summary,
-        tags_json, dept,
+        tags_json, dept, card_style,
         status, published_at,
         author, ai_author,
         source_locale, translation_status, translation_provider,
@@ -400,7 +402,7 @@ export function migrateLabNotesSchema(
         category, excerpt, department_id,
         shadow_density, safer_landing, read_time_minutes,
         coherence_score, subtitle, summary,
-        tags_json, dept,
+        tags_json, dept, card_style,
         status, published_at,
         author, ai_author,
         source_locale, translation_status, translation_provider,
@@ -469,6 +471,7 @@ export function migrateLabNotesSchema(
 
       tags_json TEXT,
       dept TEXT,
+      card_style TEXT,
 
       status TEXT NOT NULL DEFAULT 'draft',
       published_at TEXT,
@@ -498,7 +501,7 @@ export function migrateLabNotesSchema(
       category, excerpt, department_id,
       shadow_density, safer_landing, read_time_minutes,
       coherence_score, subtitle, summary,
-      tags_json, dept,
+      tags_json, dept, card_style,
       status, published_at,
       author, ai_author,
       source_locale, translation_status, translation_provider,
@@ -529,7 +532,8 @@ export function migrateLabNotesSchema(
 
       tags_json,
       dept,
-
+      card_style,
+      
       COALESCE(NULLIF(status,''), CASE WHEN published_at IS NOT NULL THEN 'published' ELSE 'draft' END),
       published_at,
 
@@ -632,7 +636,8 @@ export function migrateLabNotesSchema(
             n.summary,
             n.tags_json,
             n.dept,
-        
+            n.card_style,
+            
             n.status,
             n.published_at,
             n.author,
@@ -687,6 +692,7 @@ export function migrateLabNotesSchema(
             n.published_at,
             n.author,
             n.ai_author,
+            n.card_style,
         
             n.current_revision_id,
             n.published_revision_id,
