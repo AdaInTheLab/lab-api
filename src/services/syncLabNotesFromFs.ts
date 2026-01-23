@@ -123,58 +123,58 @@ export function syncLabNotesFromFs(
     // - Does NOT touch status (human-controlled)
     // -----------------------------
     const upsertNote = db.prepare(`
-    INSERT INTO lab_notes (
-      id, group_id, slug, locale,
-      type, title,
-      category, excerpt, department_id,
-      shadow_density, coherence_score, safer_landing, read_time_minutes,
-      published_at,
-      created_at, updated_at
-    )
-    VALUES (
-      COALESCE(@id, lower(hex(randomblob(16)))),
-      COALESCE(NULLIF(@group_id, ''), 'core'),
-      @slug,
-      LOWER(COALESCE(NULLIF(@locale, ''), 'en')),
-      COALESCE(NULLIF(@type, ''), 'labnote'),
-      COALESCE(NULLIF(@title, ''), ''),
-      @category,
-      @excerpt,
-      @department_id,
-      @shadow_density,
-      @coherence_score,
-      @safer_landing,
-      @read_time_minutes,
-      @published_at,
-      COALESCE(NULLIF(@created_at, ''), strftime('%Y-%m-%dT%H:%M:%fZ','now')),
-      strftime('%Y-%m-%dT%H:%M:%fZ','now')
-    )
-    ON CONFLICT(slug, locale) DO UPDATE SET
-      type=excluded.type,
-      title=excluded.title,
-      category=excluded.category,
-      excerpt=excluded.excerpt,
-      department_id=excluded.department_id,
-      shadow_density=excluded.shadow_density,
-      coherence_score=excluded.coherence_score,
-      safer_landing=excluded.safer_landing,
-      read_time_minutes=excluded.read_time_minutes,
+        INSERT INTO lab_notes (
+            id, group_id, slug, locale,
+            type, title,
+            category, excerpt, department_id,
+            shadow_density, coherence_score, safer_landing, read_time_minutes,
+            published_at,
+            created_at, updated_at
+        )
+        VALUES (
+                   COALESCE(@id, lower(hex(randomblob(16)))),
+                   COALESCE(NULLIF(@group_id, ''), 'core'),
+                   @slug,
+                   LOWER(COALESCE(NULLIF(@locale, ''), 'en')),
+                   COALESCE(NULLIF(@type, ''), 'labnote'),
+                   COALESCE(NULLIF(@title, ''), ''),
+                   @category,
+                   @excerpt,
+                   @department_id,
+                   @shadow_density,
+                   @coherence_score,
+                   @safer_landing,
+                   @read_time_minutes,
+                   @published_at,
+                   COALESCE(NULLIF(@created_at, ''), strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+                   strftime('%Y-%m-%dT%H:%M:%fZ','now')
+               )
+        ON CONFLICT(slug, locale) DO UPDATE SET
+                                                type=excluded.type,
+                                                title=excluded.title,
+                                                category=excluded.category,
+                                                excerpt=excluded.excerpt,
+                                                department_id=excluded.department_id,
+                                                shadow_density=excluded.shadow_density,
+                                                coherence_score=excluded.coherence_score,
+                                                safer_landing=excluded.safer_landing,
+                                                read_time_minutes=excluded.read_time_minutes,
 
-      -- ✅ PRESERVE publish timestamp unless MD explicitly provides one
-      published_at = CASE
-        WHEN excluded.published_at IS NOT NULL THEN excluded.published_at
-        ELSE lab_notes.published_at
-      END,
+                                                -- ✅ PRESERVE publish timestamp unless MD explicitly provides one
+                                                published_at = CASE
+                                                                   WHEN excluded.published_at IS NOT NULL THEN excluded.published_at
+                                                                   ELSE lab_notes.published_at
+                                                    END,
 
-      updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now')
-  `);
+                                                updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now')
+    `);
 
     const selectNote = db.prepare(`
-    SELECT id, status, published_at, current_revision_id, published_revision_id
-    FROM lab_notes
-    WHERE slug = ? AND locale = ?
-    LIMIT 1
-  `);
+        SELECT id, status, published_at, current_revision_id, published_revision_id
+        FROM lab_notes
+        WHERE slug = ? AND locale = ?
+        LIMIT 1
+    `);
 
     const selectLatestRevision = db.prepare(`
         SELECT id, revision_num, content_hash, length(content_markdown) AS md_len, source
@@ -185,42 +185,48 @@ export function syncLabNotesFromFs(
     `);
 
     const selectCurrentRevisionSource = db.prepare(`
-    SELECT r.source AS source
-    FROM lab_notes n
-    LEFT JOIN lab_note_revisions r ON r.id = n.current_revision_id
-    WHERE n.id = ?
-    LIMIT 1
-  `);
+        SELECT r.source AS source
+        FROM lab_notes n
+                 LEFT JOIN lab_note_revisions r ON r.id = n.current_revision_id
+        WHERE n.id = ?
+        LIMIT 1
+    `);
 
     // -----------------------------
     // SQL: revisions insert (NAMED PARAMS)
     // We accept JSON fields as strings (already serialized)
     // -----------------------------
     const insertRevision = db.prepare(`
-    INSERT INTO lab_note_revisions (
-      id, note_id,
-      revision_num, supersedes_revision_id,
-      frontmatter_json, content_markdown, content_hash,
-      schema_version, source,
-      intent, intent_version,
-      scope_json, side_effects_json, reversible,
-      auth_type, scopes_json,
-      reasoning_json,
-      created_at
-    )
-    VALUES (
-      @id, @note_id,
-      @revision_num, @supersedes_revision_id,
-      @frontmatter_json, @content_markdown, @content_hash,
-      @schema_version, @source,
-      @intent, @intent_version,
-      @scope_json, @side_effects_json, @reversible,
-      @auth_type, @scopes_json,
-      @reasoning_json,
-      @created_at
-    )
-  `);
+        INSERT INTO lab_note_revisions (
+            id, note_id,
+            revision_num, supersedes_revision_id,
+            frontmatter_json, content_markdown, content_hash,
+            schema_version, source,
+            intent, intent_version,
+            scope_json, side_effects_json, reversible,
+            auth_type, scopes_json,
+            reasoning_json,
+            created_at
+        )
+        VALUES (
+                   @id, @note_id,
+                   @revision_num, @supersedes_revision_id,
+                   @frontmatter_json, @content_markdown, @content_hash,
+                   @schema_version, @source,
+                   @intent, @intent_version,
+                   @scope_json, @side_effects_json, @reversible,
+                   @auth_type, @scopes_json,
+                   @reasoning_json,
+                   @created_at
+               )
+    `);
 
+    // -----------------------------
+    // SQL: pointer updates
+    // IMPORTANT:
+    // - updatePointers will ALSO advance published_revision_id if note is published
+    // - updateCurrentPointerOnly NEVER touches published_revision_id (prevents FS overwriting canon)
+    // -----------------------------
     const updatePointers = db.prepare(`
     UPDATE lab_notes
     SET
@@ -232,6 +238,14 @@ export function syncLabNotesFromFs(
       updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
     WHERE id = ?
   `);
+
+    const updateCurrentPointerOnly = db.prepare(`
+        UPDATE lab_notes
+        SET
+            current_revision_id = ?,
+            updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
+        WHERE id = ?
+    `);
 
     const processFile = (filePath: string, locale: string) => {
         counts.scanned += 1;
@@ -296,6 +310,8 @@ export function syncLabNotesFromFs(
                 return;
             }
 
+            const isPublished = noteRow.status === "published";
+
             // 2) GUARD: Never create / advance to an empty-body revision
             if (!markdown) {
                 counts.emptyBodySkipped += 1;
@@ -309,14 +325,16 @@ export function syncLabNotesFromFs(
                 | undefined;
 
             // 3) Idempotency: if the latest revision already matches this body, do nothing
-            // 3) Idempotency: if the latest revision already matches this body, usually do nothing
             if (latest && latest.content_hash === hash && (latest.md_len ?? 0) > 0) {
-                // But if we're forcing, we may still need to advance pointers to the latest import revision
+                // If we're forcing, we may still need to advance pointers to the latest import revision
                 if (force && latest.source === "import") {
+                    // Force: explicit promotion path (including published pointer)
                     updatePointers.run(latest.id, latest.id, noteRow.id);
                     counts.pointersUpdated += 1;
                     counts.pointersForced += 1;
                 } else {
+                    // Non-force: DO NOT touch published pointer on published notes.
+                    // (No-op is safest; current pointer already points to current content.)
                     counts.skipped += 1;
                 }
                 return;
@@ -387,17 +405,24 @@ export function syncLabNotesFromFs(
             // - force=true: always advance (explicit override)
             // - no current revision: new note, safe
             // - current source is 'import': FS already owns the current draft
-            const canAdvance =
-                force ||
-                !noteRow.current_revision_id ||
-                curSource === "import";
+            const canAdvance = force || !noteRow.current_revision_id || curSource === "import";
 
             if (canAdvance) {
-                updatePointers.run(newRevId, newRevId, noteRow.id);
-                counts.pointersUpdated += 1;
+                if (isPublished && !force) {
+                    // ✅ RACCOON PROOF: published canon must not be overwritten by filesystem imports.
+                    // We may update the current pointer (for preview / diffs), but we do NOT update published_revision_id.
+                    updateCurrentPointerOnly.run(newRevId, noteRow.id);
+                    counts.pointersUpdated += 1;
+                } else {
+                    // Draft notes (or forced promotion): safe to advance both pointers.
+                    updatePointers.run(newRevId, newRevId, noteRow.id);
+                    counts.pointersUpdated += 1;
 
-                if (force && noteRow.current_revision_id && curSource !== "import") {
-                    counts.pointersForced += 1;
+                    if (force && noteRow.current_revision_id && curSource !== "import") {
+                        counts.pointersForced += 1;
+                    } else if (force && isPublished) {
+                        counts.pointersForced += 1;
+                    }
                 }
             } else {
                 // Protected admin draft: we still inserted the import revision, but we don't switch pointers
@@ -412,7 +437,6 @@ export function syncLabNotesFromFs(
                     });
                 }
             }
-
         } catch (e: any) {
             counts.errors.push({ file: filePath, error: e?.message ?? String(e) });
         }
