@@ -42,6 +42,7 @@ export interface LabNoteRecord {
     status?: LabNoteStatus | null;
 
     dept?: string | null;
+    card_style?: string | null;
     locale?: string | null;
 
     author_kind?: "human" | "ai" | "hybrid" | null;
@@ -83,4 +84,5 @@ export interface LabNoteView {
 
     created_at?: string;
     updated_at?: string;
+    card_style?: string;
 }

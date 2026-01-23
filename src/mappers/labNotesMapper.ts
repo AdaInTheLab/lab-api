@@ -138,6 +138,7 @@ export function mapToLabNoteView(note: LabNoteRecord, tags: string[]) {
 
         created_at: note.created_at,
         updated_at: note.updated_at,
+        card_style: note.card_style ?? undefined,
     };
 }
 
@@ -184,5 +185,6 @@ export function mapToLabNotePreview(note: LabNoteRecord, tags: string[]) {
 
         created_at: note.created_at,
         updated_at: note.updated_at,
+        card_style: note.card_style ?? undefined,
     };
 }

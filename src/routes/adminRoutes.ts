@@ -25,7 +25,7 @@ export function registerAdminRoutes(app: any, db: Database.Database) {
                 .prepare(
                     `
                         SELECT
-                            id, slug, title, locale,
+                            id, slug, title, subtitle, card_style, locale,
                             type, status, dept,
                             category, excerpt, summary,
                             department_id, shadow_density, coherence_score,
@@ -62,7 +62,7 @@ export function registerAdminRoutes(app: any, db: Database.Database) {
                 .prepare(
                     `
         SELECT
-          id, slug, title, locale,
+          id, slug, title, subtitle, card_style, locale,
           type, status, dept,
           category, excerpt, summary,
           content_markdown,
@@ -94,6 +94,8 @@ export function registerAdminRoutes(app: any, db: Database.Database) {
             const {
                 id,
                 title,
+                subtitle,
+                card_style,
                 slug,
                 locale,
                 category,
@@ -113,6 +115,13 @@ export function registerAdminRoutes(app: any, db: Database.Database) {
 
             if (!title) return res.status(400).json({ error: "title is required" });
             if (!slug) return res.status(400).json({ error: "slug is required" });
+
+            const incomingSubtitle =
+                typeof subtitle === "string" ? subtitle.trim() : null;
+
+            // Allow "" to mean “auto”, store NULL
+            const incomingCardStyle =
+                typeof card_style === "string" && card_style.trim() ? card_style.trim().toLowerCase() : null;
 
             const noteLocale = normalizeLocale(locale);
             const noteType = String(type ?? "labnote");
@@ -157,7 +166,7 @@ export function registerAdminRoutes(app: any, db: Database.Database) {
                 // 1) Upsert metadata row (NO content_html writes, NO content_markdown column)
                 db.prepare(`
                     INSERT INTO lab_notes (
-                        id, title, slug, locale,
+                        id, title, subtitle, card_style, slug, locale,
                         type, status, dept,
                         category, excerpt, summary,
                         department_id, shadow_density, coherence_score,
@@ -166,7 +175,7 @@ export function registerAdminRoutes(app: any, db: Database.Database) {
                     )
                     VALUES (
                                ?, ?, ?, ?,
-                               ?, ?, ?,
+                               ?, ?, ?, ?, ?,
                                ?, ?, ?,
                                ?, ?, ?,
                                ?, ?, ?,
@@ -174,6 +183,8 @@ export function registerAdminRoutes(app: any, db: Database.Database) {
                            )
                     ON CONFLICT(slug, locale) DO UPDATE SET
                                                             title=excluded.title,
+                                                            subtitle = COALESCE(excluded.subtitle, lab_notes.subtitle),
+                                                            card_style = COALESCE(excluded.card_style, lab_notes.card_style),
                                                             type=excluded.type,
                                                             status=excluded.status,
                                                             dept = COALESCE(excluded.dept, lab_notes.dept),
@@ -190,12 +201,14 @@ export function registerAdminRoutes(app: any, db: Database.Database) {
                 `).run(
                     noteId,
                     title,
+                    subtitle,
+                    card_style,
                     slug,
                     noteLocale,
 
-                    noteType,
+                    resolvedType,
                     noteStatus,
-                    dept ?? null,
+                    resolvedDepartment,
 
                     category || "Uncategorized",
                     excerpt || "",
@@ -240,9 +253,10 @@ export function registerAdminRoutes(app: any, db: Database.Database) {
                     slug,
                     locale: noteLocale,
                     type: noteType,
-                    title,
+                    subtitle: incomingSubtitle ?? undefined,
+                    card_style: incomingCardStyle ?? undefined,
                     status: noteStatus,
-                    published: normalizedPublishedAt ?? undefined,
+                    published_at: normalizedPublishedAt ?? undefined,
                     dept: dept ?? null,
                     department_id: resolvedDepartment,
                     shadow_density: shadow_density ?? 0,
@@ -361,8 +375,6 @@ export function registerAdminRoutes(app: any, db: Database.Database) {
             });
         }
     });
-
-
 
     // ---------------------------------------------------------------------------
     // Admin: Publish Lab Note (protected)
