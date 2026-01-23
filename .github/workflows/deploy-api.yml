@@ -14,7 +14,9 @@ jobs:
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
-
+        with:
+          submodules: recursive
+          
       - name: 🔍 Reveal NODE_ENV (runner)
         run: |
           echo "RUNNER NODE_ENV=$NODE_ENV"
@@ -48,6 +50,7 @@ jobs:
           mkdir -p deploy_bundle
 
           cp -R dist deploy_bundle/dist
+          cp -R content deploy_bundle/content
           cp package.json package-lock.json deploy_bundle/
 
           # Include ecosystem file if it's tracked in the repo
