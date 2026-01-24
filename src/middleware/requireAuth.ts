@@ -1,7 +1,7 @@
 import type { Request, Response, NextFunction } from "express";
 import type Database from "better-sqlite3";
-import { verifyApiToken } from "@/auth/tokens.js";
-import { getGithubLogin } from "@/auth.js";
+import { verifyApiToken } from "../auth/tokens.js";
+import { getGithubLogin } from "../auth.js";
 
 export type AuthContext =
     | { kind: "session"; login: string; scopes: string[] }
@@ -24,6 +24,13 @@ function getAuthToken(req: Request): string | null {
 
 export function requireAuth(db: Database.Database) {
     return (req: Request, res: Response, next: NextFunction) => {
+        // 0) Dev bypass (for testing)
+        const devBypass = process.env.ADMIN_DEV_BYPASS === "1" || process.env.ADMIN_DEV_BYPASS === "true";
+        if (devBypass && process.env.NODE_ENV !== "production") {
+            req.auth = { kind: "session", login: "dev-bypass", scopes: ["admin"] };
+            return next();
+        }
+
         // 1) Human session auth
         if (req.isAuthenticated?.() && (req as any).user) {
             const login = getGithubLogin((req as any).user);

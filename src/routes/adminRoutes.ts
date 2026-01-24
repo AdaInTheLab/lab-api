@@ -4,6 +4,7 @@ import type Database from "better-sqlite3";
 import { randomUUID } from "node:crypto";
 import { marked } from "marked";
 import passport, { requireAdmin, isGithubOAuthEnabled } from "../auth.js";
+import { requireAuth } from "../middleware/requireAuth.js";
 import { syncLabNotesFromFs, SyncCounts } from "../services/syncLabNotesFromFs.js";
 import { normalizeLocale, sha256Hex } from "../lib/helpers.js";
 
@@ -88,8 +89,9 @@ export function registerAdminRoutes(app: any, db: Database.Database) {
 
     // ---------------------------------------------------------------------------
     // Admin: upsert Lab Note (protected)
+    // Accepts both session auth (browser) and Bearer token auth (CLI)
     // ---------------------------------------------------------------------------
-    app.post("/admin/notes", requireAdmin, (req: Request, res: Response) => {
+    app.post("/admin/notes", requireAuth(db), (req: Request, res: Response) => {
         try {
             const {
                 id,
