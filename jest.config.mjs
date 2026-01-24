@@ -17,7 +17,7 @@ export default {
     setupFiles: ["<rootDir>/tests/jest.setup.ts"],
 
     moduleNameMapper: {
-        "^@/(.*)$": path.join(__dirname, "src/$1"),
+        "^@/(.*)$": "<rootDir>/src/$1",
         "^(\\.{1,2}/.*)\\.js$": "$1",
     },
 };
