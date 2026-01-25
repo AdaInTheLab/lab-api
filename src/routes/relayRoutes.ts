@@ -176,7 +176,7 @@ export function registerRelayRoutes(app: Router, db: Database.Database) {
           bodyMarkdown,
           contentHash,
           "0.1",
-          "relay",
+          "api",
           "voice_manifestation",
           "1",
           JSON.stringify(["db"]),
