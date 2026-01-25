@@ -10,6 +10,7 @@ import { registerAdminRoutes } from "./routes/adminRoutes.js";
 import OpenApiValidator from "express-openapi-validator";
 import { registerOpenApiRoutes } from "./routes/openapiRoutes.js";
 import { registerAdminTokensRoutes } from "./routes/adminTokensRoutes.js";
+import { registerRelayRoutes } from "./routes/relayRoutes.js";
 import fs from "node:fs";
 import path from "node:path";
 import { env } from "./env.js";
@@ -230,6 +231,7 @@ export function createApp() {
     registerAdminRoutes(api, db);
     registerLabNotesRoutes(api, db);
     registerAdminTokensRoutes(app, db);
+    registerRelayRoutes(api, db);
 
 // MOUNT THE ROUTER (this is what makes routes actually exist)
     app.use("/", api);     // ✅ canonical
