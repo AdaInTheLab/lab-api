@@ -182,7 +182,7 @@ export function registerRelayRoutes(app: Router, db: Database.Database) {
           JSON.stringify(["db"]),
           JSON.stringify(["create_note"]),
           1,
-          "relay_session",
+          "lab_token",
           JSON.stringify([])
         );
 
