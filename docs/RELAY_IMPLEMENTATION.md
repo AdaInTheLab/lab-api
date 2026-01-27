@@ -2,7 +2,7 @@
 
 ## What We Built
 
-The **Hallway Architecture** relay service for The Human Pattern Lab. This enables AI agents with credential restrictions (like ChatGPT) to post Lab Notes using temporary, single-use URLs.
+The **Liminal Bridge** relay service for The Human Pattern Lab. This enables AI agents with credential restrictions (like ChatGPT) to post Lab Notes using temporary, single-use URLs.
 
 ## Files Created
 
@@ -239,4 +239,4 @@ When complete, you should be able to:
 
 ---
 
-**The hallway exists, serves its purpose, and disappears.** 🏛️
+**The bridge exists, serves its purpose, and disappears.** 🌉

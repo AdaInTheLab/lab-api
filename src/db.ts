@@ -9,6 +9,7 @@ import { migrateLabNotesSchema, LAB_NOTES_SCHEMA_VERSION } from "./db/migrateLab
 import {dedupeLabNotesSlugs} from "./db/migrations/2025-01-dedupe-lab-notes-slugs.js";
 import { migrateApiTokensSchema } from "./db/migrateApiTokens.js";
 import { createRelaySessions } from "./db/migrations/2025-01-add-relay-sessions.js";
+import { up as createBridgePosts } from "./db/migrations/2025-01-28-add-bridge-posts.js";
 
 export function resolveDbPath(): string {
     const __filename = fileURLToPath(import.meta.url);
@@ -81,6 +82,7 @@ export function bootstrapDb(db: Database.Database) {
     migrateLabNotesSchema(db, log);
     migrateApiTokensSchema(db, log);
     createRelaySessions(db, log);
+    createBridgePosts(db);  // 🌉 Liminal Bridge posts table
     if (prevVersion < 3) {
         dedupeLabNotesSlugs(db, log);
     }
