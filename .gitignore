@@ -39,3 +39,4 @@ ecosystem.config.cjs
 /config.yml
 coverage/
 
+/data/lab.dev-backup-20260127.db
