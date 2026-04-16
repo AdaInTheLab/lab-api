@@ -1,6 +1,6 @@
 // src/types/labNotes.ts
 
-export type LabNoteType = "labnote" | "paper" | "memo" | "lore" | "weather";
+export type LabNoteType = "labnote" | "paper" | "memo" | "lore" | "weather" | "tail";
 export type LabNoteStatus = "published" | "draft" | "archived";
 
 export const ALLOWED_NOTE_TYPES: ReadonlySet<LabNoteType> = new Set([
@@ -9,6 +9,7 @@ export const ALLOWED_NOTE_TYPES: ReadonlySet<LabNoteType> = new Set([
     "memo",
     "lore",
     "weather",
+    "tail",
 ]);
 
 export interface LabNoteRecord {

@@ -13,7 +13,7 @@ export type ApiLabNote = {
 
     published: string; // "" or YYYY-MM-DD
     status: "draft" | "published" | "archived";
-    type: "labnote" | "paper" | "memo";
+    type: "labnote" | "paper" | "memo" | "lore" | "weather" | "tail";
     locale: string;
 
     department_id: string;
