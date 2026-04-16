@@ -7,6 +7,7 @@ import passport, { requireAdmin, isGithubOAuthEnabled } from "../auth.js";
 import { requireAuth } from "../middleware/requireAuth.js";
 import { syncLabNotesFromFs, SyncCounts } from "../services/syncLabNotesFromFs.js";
 import { normalizeLocale, sha256Hex } from "../lib/helpers.js";
+import { env } from "../env.js";
 
 marked.setOptions({
     gfm: true,
@@ -14,8 +15,9 @@ marked.setOptions({
 });
 
 export function registerAdminRoutes(app: any, db: Database.Database) {
-    // Must match your UI origin exactly (no trailing slash)
-    const UI_BASE_URL = process.env.UI_BASE_URL ?? "http://localhost:8001";
+    // Primary UI origin (first entry of UI_BASE_URL). Used for OAuth redirects.
+    // For CORS allowlist behavior, see env.UI_ALLOWED_ORIGINS.
+    const UI_BASE_URL = env.UI_BASE_URL ?? "http://localhost:5173";
 
     // ---------------------------------------------------------------------------
     // Admin: list Lab Notes (protected)
