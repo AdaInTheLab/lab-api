@@ -58,9 +58,21 @@ export function createApp() {
     const isTest = env.NODE_ENV === "test";
     const isProd = env.NODE_ENV === "production";
 
-    // This must match the browser's Origin exactly (no trailing slash).
-    // Example: "https://thehumanpatternlab.com"
+    // CORS origins come from UI_BASE_URL (comma-separated allowed).
+    // Browser Origin header must match EXACTLY (no trailing slash).
+    // Example: UI_BASE_URL="https://thehumanpatternlab.com,https://ironkitsune.tech"
     const uiOrigin = env.UI_BASE_URL ?? "http://localhost:5173";
+    const allowedOrigins =
+        env.UI_ALLOWED_ORIGINS.length > 0
+            ? env.UI_ALLOWED_ORIGINS
+            : ["http://localhost:5173"];
+    const corsOrigin = (origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) => {
+        if (!origin || allowedOrigins.includes(origin)) {
+            callback(null, true);
+        } else {
+            callback(new Error(`CORS: origin ${origin} not allowed`));
+        }
+    };
 
     /* ===========================================================
        5) CORS (BEFORE SESSION IF CROSS-ORIGIN)
@@ -78,13 +90,13 @@ export function createApp() {
        =========================================================== */
     app.use(
         cors({
-            origin: uiOrigin,
+            origin: corsOrigin,
             credentials: true,
         })
     );
 
 // ✅ Force-handle ALL preflight requests
-    app.options(/.*/, cors({ origin: uiOrigin, credentials: true }));
+    app.options(/.*/, cors({ origin: corsOrigin, credentials: true }));
     app.use((req, _res, next) => {
         if (req.method === "OPTIONS") {
             console.log("🧪 Preflight:", req.headers.origin, req.headers["access-control-request-method"], req.url);
@@ -240,3 +252,4 @@ export function createApp() {
     registerOpenApiRoutes(app);
     return app;
 }
+

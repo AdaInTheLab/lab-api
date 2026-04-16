@@ -16,6 +16,7 @@ type Env = {
     SESSION_SECRET?: string;
 
     UI_BASE_URL?: string;
+    UI_ALLOWED_ORIGINS: string[];
 
     // optional OAuth vars (used by auth.ts via process.env)
     OAUTH_GITHUB_CLIENT_ID?: string;
@@ -64,6 +65,14 @@ function normalizeNodeEnv(value: string): NodeEnv {
     throw new EnvError('Invalid NODE_ENV="' + value + '". Use "development", "test", or "production".');
 }
 
+function parseOriginList(value: string | undefined): string[] {
+    if (!value) return [];
+    return value
+        .split(",")
+        .map((s) => s.trim().replace(/\/$/, "")) // drop trailing slash
+        .filter((s) => s.length > 0);
+}
+
 function parsePort(value: string | undefined, fallback: number): number {
     if (value == null || value.trim() === "") return fallback;
     const n = Number(value);
@@ -97,7 +106,8 @@ function validateEnv(input: NodeJS.ProcessEnv): Env {
         DB_PATH,
         SESSION_SECRET,
 
-        UI_BASE_URL: input.UI_BASE_URL?.trim(),
+        UI_BASE_URL: parseOriginList(input.UI_BASE_URL)[0],
+        UI_ALLOWED_ORIGINS: parseOriginList(input.UI_BASE_URL),
 
         OAUTH_GITHUB_CLIENT_ID: input.OAUTH_GITHUB_CLIENT_ID?.trim(),
         OAUTH_GITHUB_CLIENT_SECRET: input.OAUTH_GITHUB_CLIENT_SECRET?.trim(),
