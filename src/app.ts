@@ -61,7 +61,6 @@ export function createApp() {
     // CORS origins come from UI_BASE_URL (comma-separated allowed).
     // Browser Origin header must match EXACTLY (no trailing slash).
     // Example: UI_BASE_URL="https://thehumanpatternlab.com,https://ironkitsune.tech"
-    const uiOrigin = env.UI_BASE_URL ?? "http://localhost:5173";
     const allowedOrigins =
         env.UI_ALLOWED_ORIGINS.length > 0
             ? env.UI_ALLOWED_ORIGINS
