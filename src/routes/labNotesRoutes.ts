@@ -4,6 +4,7 @@ import type Database from "better-sqlite3";
 import type { LabNoteRecord, TagResult } from "../types/labNotes.js";
 import { mapToLabNotePreview, mapToLabNoteView } from "../mappers/labNotesMapper.js";
 import { normalizeLocale, inferLocale } from "../lib/helpers.js";
+import { ALLOWED_NOTE_TYPES } from "../types/labNotes.js";
 import { expandMascotBlocks } from "../lib/markdownBlocks.js";
 import { marked } from "marked";
 
@@ -20,6 +21,11 @@ export function registerLabNotesRoutes(app: any, db: Database.Database) {
         try {
             const locale = normalizeLocale(req.query.locale);
 
+            const rawType = String(req.query.type ?? "").toLowerCase();
+            const typeFilter = ALLOWED_NOTE_TYPES.has(rawType as any) ? rawType : null;
+
+            const typeClause = typeFilter ? "AND type = ?" : "";
+
             const orderBy = `
         ORDER BY
           published_at DESC,
@@ -34,6 +40,7 @@ export function registerLabNotesRoutes(app: any, db: Database.Database) {
                     published_at, created_at, updated_at, card_style
                 FROM v_lab_notes
                 WHERE status = 'published'
+                    ${typeClause}
                     ${orderBy}
             `;
 
@@ -46,12 +53,20 @@ export function registerLabNotesRoutes(app: any, db: Database.Database) {
                 FROM v_lab_notes
                 WHERE locale = ?
                   AND status = 'published'
+                    ${typeClause}
                     ${orderBy}
             `;
 
-            const notes = (locale === "all"
-                ? db.prepare(sqlAll).all()
-                : db.prepare(sqlByLocale).all(locale)) as LabNoteRecord[];
+            const notes = (() => {
+                if (locale === "all") {
+                    return typeFilter
+                        ? db.prepare(sqlAll).all(typeFilter)
+                        : db.prepare(sqlAll).all();
+                }
+                return typeFilter
+                    ? db.prepare(sqlByLocale).all(locale, typeFilter)
+                    : db.prepare(sqlByLocale).all(locale);
+            })() as LabNoteRecord[];
 
             const mapped = notes.map((note) => {
                 const tagRows = db
