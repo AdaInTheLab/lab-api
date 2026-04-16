@@ -1,6 +1,7 @@
 // src/mappers/labNotesMapper.ts
 import { marked } from "marked";
-import type { LabNoteRecord } from "../types/labNotes.js";
+import type { LabNoteRecord, LabNoteStatus, LabNoteType } from "../types/labNotes.js";
+import { ALLOWED_NOTE_TYPES } from "../types/labNotes.js";
 
 /* ===========================================================
    🧭 Lab Notes Mapper — Ledger-First Output
@@ -15,17 +16,6 @@ import type { LabNoteRecord } from "../types/labNotes.js";
    - Syncing markdown
    - Auth decisions
    =========================================================== */
-
-type LabNoteStatus = "published" | "draft" | "archived";
-type LabNoteType = "labnote" | "paper" | "memo" | "lore" | "weather";
-
-const ALLOWED_NOTE_TYPES: ReadonlySet<LabNoteType> = new Set([
-    "labnote",
-    "paper",
-    "memo",
-    "lore",
-    "weather",
-]);
 
 marked.setOptions({
     gfm: true,
@@ -65,6 +55,7 @@ function deriveType(note: LabNoteRecord): LabNoteType {
     if (note.category === "memo") return "memo";
     if (note.category === "lore") return "lore";
     if (note.category === "weather") return "weather";
+    if (note.category === "tail") return "tail";
 
     return "labnote";
 }
@@ -188,3 +179,4 @@ export function mapToLabNotePreview(note: LabNoteRecord, tags: string[]) {
         card_style: note.card_style ?? undefined,
     };
 }
+

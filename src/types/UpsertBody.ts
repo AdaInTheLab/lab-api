@@ -10,7 +10,7 @@ export type UpsertBody = {
     summary?: string;           // longer abstract (UI-facing)
 
     // taxonomy
-    type?: "labnote" | "paper" | "memo" | "lore";
+    type?: "labnote" | "paper" | "memo" | "lore" | "weather" | "tail";
     status?: "draft" | "published";
     category?: string;          // legacy / optional
     dept?: string;              // human-facing dept label
