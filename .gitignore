@@ -40,3 +40,5 @@ ecosystem.config.cjs
 coverage/
 
 /data/lab.dev-backup-20260127.db
+
+.claude/settings.local.json
