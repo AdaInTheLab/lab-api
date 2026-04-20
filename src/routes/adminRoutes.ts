@@ -32,6 +32,7 @@ export function registerAdminRoutes(app: any, db: Database.Database) {
                             department_id, shadow_density, coherence_score,
                             safer_landing, read_time_minutes,
                             published_at,
+                            author_name, author_kind,
                             created_at, updated_at
                         FROM v_lab_notes
                         ORDER BY
@@ -40,9 +41,25 @@ export function registerAdminRoutes(app: any, db: Database.Database) {
                             updated_at DESC
                     `
                 )
-                .all();
+                .all() as Array<{ id: string } & Record<string, unknown>>;
 
-            return res.json(rows);
+            const tagRows = db
+                .prepare(`SELECT note_id, tag FROM lab_note_tags`)
+                .all() as Array<{ note_id: string; tag: string }>;
+
+            const tagsByNoteId = new Map<string, string[]>();
+            for (const { note_id, tag } of tagRows) {
+                const list = tagsByNoteId.get(note_id) ?? [];
+                list.push(tag);
+                tagsByNoteId.set(note_id, list);
+            }
+
+            const withTags = rows.map((r) => ({
+                ...r,
+                tags: tagsByNoteId.get(r.id) ?? [],
+            }));
+
+            return res.json(withTags);
         } catch (e: any) {
             return res.status(500).json({ error: "Database error", details: String(e?.message ?? e) });
         }
@@ -70,22 +87,129 @@ export function registerAdminRoutes(app: any, db: Database.Database) {
           department_id, shadow_density, coherence_score,
           safer_landing, read_time_minutes,
           published_at,
+          author_name, author_kind,
           created_at, updated_at
         FROM v_lab_notes
         WHERE slug = ? AND locale = ?
         LIMIT 1
       `
                 )
-                .get(slug, locale);
+                .get(slug, locale) as ({ id: string } & Record<string, unknown>) | undefined;
 
             if (!row) return res.status(404).json({ error: "Not found" });
-            return res.json(row);
+
+            const tagRows = db
+                .prepare(`SELECT tag FROM lab_note_tags WHERE note_id = ?`)
+                .all(row.id) as Array<{ tag: string }>;
+
+            return res.json({ ...row, tags: tagRows.map((t) => t.tag) });
         } catch (e: any) {
             return res.status(500).json({ error: "Database error", details: String(e?.message ?? e) });
         }
     });
 
+    // ---------------------------------------------------------------------------
+    // Admin: list revisions for a note (protected)
+    // GET /admin/notes/:slug/revisions?locale=en
+    // ---------------------------------------------------------------------------
+    app.get("/admin/notes/:slug/revisions", requireAdmin, (req: Request, res: Response) => {
+        try {
+            const slug = String(req.params.slug ?? "").trim();
+            const locale = normalizeLocale(String(req.query.locale ?? "en"));
+            if (!slug) return res.status(400).json({ error: "slug is required" });
 
+            const note = db
+                .prepare(`SELECT id, current_revision_id, published_revision_id FROM lab_notes WHERE slug = ? AND locale = ? LIMIT 1`)
+                .get(slug, locale) as
+                | { id: string; current_revision_id: string | null; published_revision_id: string | null }
+                | undefined;
+
+            if (!note) return res.status(404).json({ error: "Not found" });
+
+            const rows = db
+                .prepare(`
+                    SELECT
+                        id,
+                        revision_num,
+                        supersedes_revision_id,
+                        content_hash,
+                        length(content_markdown) AS content_length,
+                        source,
+                        intent,
+                        auth_type,
+                        created_at
+                    FROM lab_note_revisions
+                    WHERE note_id = ?
+                    ORDER BY revision_num DESC
+                `)
+                .all(note.id) as Array<{
+                id: string;
+                revision_num: number;
+                supersedes_revision_id: string | null;
+                content_hash: string;
+                content_length: number;
+                source: string;
+                intent: string;
+                auth_type: string;
+                created_at: string;
+            }>;
+
+            return res.json({
+                note_id: note.id,
+                current_revision_id: note.current_revision_id,
+                published_revision_id: note.published_revision_id,
+                revisions: rows,
+            });
+        } catch (e: any) {
+            return res.status(500).json({ error: "Database error", details: String(e?.message ?? e) });
+        }
+    });
+
+    // ---------------------------------------------------------------------------
+    // Admin: single revision detail (protected)
+    // GET /admin/notes/:slug/revisions/:revId?locale=en
+    // ---------------------------------------------------------------------------
+    app.get("/admin/notes/:slug/revisions/:revId", requireAdmin, (req: Request, res: Response) => {
+        try {
+            const slug = String(req.params.slug ?? "").trim();
+            const revId = String(req.params.revId ?? "").trim();
+            const locale = normalizeLocale(String(req.query.locale ?? "en"));
+            if (!slug || !revId) return res.status(400).json({ error: "slug and revId are required" });
+
+            const note = db
+                .prepare(`SELECT id FROM lab_notes WHERE slug = ? AND locale = ? LIMIT 1`)
+                .get(slug, locale) as { id: string } | undefined;
+
+            if (!note) return res.status(404).json({ error: "Not found" });
+
+            const row = db
+                .prepare(`
+                    SELECT
+                        id,
+                        note_id,
+                        revision_num,
+                        supersedes_revision_id,
+                        frontmatter_json,
+                        content_markdown,
+                        content_hash,
+                        schema_version,
+                        source,
+                        intent,
+                        intent_version,
+                        auth_type,
+                        created_at
+                    FROM lab_note_revisions
+                    WHERE id = ? AND note_id = ?
+                    LIMIT 1
+                `)
+                .get(revId, note.id);
+
+            if (!row) return res.status(404).json({ error: "Revision not found" });
+            return res.json(row);
+        } catch (e: any) {
+            return res.status(500).json({ error: "Database error", details: String(e?.message ?? e) });
+        }
+    });
 
     // ---------------------------------------------------------------------------
     // Admin: upsert Lab Note (protected)
@@ -113,10 +237,35 @@ export function registerAdminRoutes(app: any, db: Database.Database) {
                 type,
                 status,
                 dept,
+                author_name,
+                author_kind,
+                tags,
             } = req.body ?? {};
 
             if (!title) return res.status(400).json({ error: "title is required" });
             if (!slug) return res.status(400).json({ error: "slug is required" });
+
+            const incomingAuthorName =
+                typeof author_name === "string" && author_name.trim() ? author_name.trim() : null;
+            const incomingAuthorKind =
+                author_kind === "human" || author_kind === "ai" || author_kind === "hybrid"
+                    ? author_kind
+                    : null;
+
+            const normalizedTags: string[] = Array.isArray(tags)
+                ? Array.from(
+                      new Set(
+                          tags
+                              .map((t) => (typeof t === "string" ? t.trim() : ""))
+                              .filter((t) => t.length > 0)
+                      )
+                  )
+                : [];
+
+            // Tails must have an author_name.
+            if (String(type ?? "").trim() === "tail" && !incomingAuthorName) {
+                return res.status(400).json({ error: "author_name is required for tails" });
+            }
 
             const incomingSubtitle =
                 typeof subtitle === "string" ? subtitle.trim() : null;
@@ -173,6 +322,7 @@ export function registerAdminRoutes(app: any, db: Database.Database) {
                         category, excerpt, summary,
                         department_id, shadow_density, coherence_score,
                         safer_landing, read_time_minutes, published_at,
+                        author_name, author_kind,
                         updated_at
                     )
                     VALUES (
@@ -181,6 +331,7 @@ export function registerAdminRoutes(app: any, db: Database.Database) {
                                ?, ?, ?,
                                ?, ?, ?,
                                ?, ?, ?,
+                               ?, ?,
                                strftime('%Y-%m-%dT%H:%M:%fZ','now')
                            )
                     ON CONFLICT(slug, locale) DO UPDATE SET
@@ -199,6 +350,8 @@ export function registerAdminRoutes(app: any, db: Database.Database) {
                                                             safer_landing=excluded.safer_landing,
                                                             read_time_minutes=excluded.read_time_minutes,
                                                             published_at=excluded.published_at,
+                                                            author_name = COALESCE(excluded.author_name, lab_notes.author_name),
+                                                            author_kind = COALESCE(excluded.author_kind, lab_notes.author_kind),
                                                             updated_at=excluded.updated_at
                 `).run(
                     noteId,
@@ -222,8 +375,22 @@ export function registerAdminRoutes(app: any, db: Database.Database) {
                     safer_landing ? 1 : 0,
                     read_time_minutes ?? 5,
 
-                    normalizedPublishedAt
+                    normalizedPublishedAt,
+
+                    incomingAuthorName,
+                    incomingAuthorKind
                 );
+
+                // 1b) Replace tags (only when caller provided a tags array)
+                if (Array.isArray(tags)) {
+                    db.prepare(`DELETE FROM lab_note_tags WHERE note_id = ?`).run(noteId);
+                    if (normalizedTags.length > 0) {
+                        const insertTag = db.prepare(
+                            `INSERT OR IGNORE INTO lab_note_tags (note_id, tag) VALUES (?, ?)`
+                        );
+                        for (const t of normalizedTags) insertTag.run(noteId, t);
+                    }
+                }
 
                 // 2) Clear legacy HTML so nothing can “win” accidentally
                 db.prepare(`UPDATE lab_notes SET content_html = NULL WHERE id = ?`).run(noteId);
@@ -268,6 +435,14 @@ export function registerAdminRoutes(app: any, db: Database.Database) {
                     excerpt: excerpt || "",
                     category: category || "Uncategorized",
                     read_time_minutes: read_time_minutes ?? 5,
+                    author:
+                        incomingAuthorName || incomingAuthorKind
+                            ? {
+                                  ...(incomingAuthorKind ? { kind: incomingAuthorKind } : {}),
+                                  ...(incomingAuthorName ? { name: incomingAuthorName } : {}),
+                              }
+                            : undefined,
+                    tags: Array.isArray(tags) ? normalizedTags : undefined,
                 };
 
                 const canonical = `${JSON.stringify(frontmatter)}\n---\n${bodyMarkdown}`;
