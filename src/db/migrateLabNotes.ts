@@ -17,7 +17,7 @@ import crypto from "crypto";
  * If content appears stale or "reverts", check views FIRST.
  */
 
-export const LAB_NOTES_SCHEMA_VERSION = 11;
+export const LAB_NOTES_SCHEMA_VERSION = 12;
 
 function setLabNotesSchemaVersion(db: Database.Database, version: number) {
     const cur = db
@@ -136,6 +136,8 @@ export function migrateLabNotesSchema(
         // Authors
         { name: "author", ddl: "TEXT" },
         { name: "ai_author", ddl: "TEXT" },
+        { name: "author_name", ddl: "TEXT" },
+        { name: "author_kind", ddl: "TEXT" },
 
         // Translation metadata
         { name: "source_locale", ddl: "TEXT" },
@@ -478,6 +480,8 @@ export function migrateLabNotesSchema(
 
       author TEXT,
       ai_author TEXT,
+      author_name TEXT,
+      author_kind TEXT,
 
       source_locale TEXT,
       translation_status TEXT NOT NULL DEFAULT 'original',
@@ -504,6 +508,7 @@ export function migrateLabNotesSchema(
       tags_json, dept, card_style,
       status, published_at,
       author, ai_author,
+      author_name, author_kind,
       source_locale, translation_status, translation_provider,
       translation_version, source_updated_at, translation_meta_json,
       content_html,
@@ -539,6 +544,8 @@ export function migrateLabNotesSchema(
 
       author,
       ai_author,
+      NULL,
+      NULL,
 
       source_locale,
       COALESCE(NULLIF(translation_status,''), 'original'),
@@ -642,7 +649,9 @@ export function migrateLabNotesSchema(
             n.published_at,
             n.author,
             n.ai_author,
-        
+            n.author_name,
+            n.author_kind,
+
             n.source_locale,
             n.translation_status,
             n.translation_provider,
