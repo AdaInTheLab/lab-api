@@ -249,6 +249,68 @@ export function createApp() {
 
 // Non-API routes can still live at root if you want:
     registerOpenApiRoutes(app);
+
+    /* ===========================================================
+       13) JSON ERROR HANDLER (LAST)
+       -----------------------------------------------------------
+       Express's default error handler returns an HTML 500 page
+       when an unhandled exception bubbles up — which makes
+       debugging from the browser/CLI painful (no visible cause).
+
+       This middleware:
+       - Forces a JSON response shape consistent with the rest of
+         the API: { ok: false, error: { code, message, details } }
+       - Honors err.status / err.statusCode (e.g. OpenApiValidator
+         throws 400 with a `.errors` array; without this handler
+         those also turn into HTML pages).
+       - Includes a stack only outside production.
+       - Always logs the full error server-side so PM2 logs still
+         show what blew up.
+
+       MUST be the LAST app.use() — Express identifies an error
+       handler by the (err, req, res, next) 4-arg signature.
+       =========================================================== */
+    app.use((err: any, req: express.Request, res: express.Response, _next: express.NextFunction) => {
+        const status = Number(err?.status ?? err?.statusCode ?? 500);
+        const code =
+            status === 400
+                ? "bad_request"
+                : status === 401
+                    ? "unauthorized"
+                    : status === 403
+                        ? "forbidden"
+                        : status === 404
+                            ? "not_found"
+                            : "internal_error";
+
+        const message = String(err?.message ?? "Unhandled error");
+
+        // OpenApiValidator-style: errors array on the err object
+        const validationErrors = Array.isArray(err?.errors) ? err.errors : undefined;
+
+        // Always log the actual error so PM2 logs show the cause
+        console.error(
+            `❌ [${req.method} ${req.originalUrl}] ${status} ${code}: ${message}`,
+            validationErrors ?? err?.stack ?? ""
+        );
+
+        if (res.headersSent) {
+            return;
+        }
+
+        res.status(status).json({
+            ok: false,
+            error: {
+                code,
+                message,
+                ...(validationErrors ? { details: validationErrors } : {}),
+                ...(env.NODE_ENV !== "production" && err?.stack
+                    ? { stack: String(err.stack).split("\n").slice(0, 8) }
+                    : {}),
+            },
+        });
+    });
+
     return app;
 }
 
