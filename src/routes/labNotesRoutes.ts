@@ -37,7 +37,8 @@ export function registerLabNotesRoutes(app: any, db: Database.Database) {
                     id, slug, locale, type, status,
                     title, subtitle, summary, excerpt,
                     department_id, dept, shadow_density, safer_landing, read_time_minutes,
-                    published_at, created_at, updated_at, card_style
+                    published_at, created_at, updated_at, card_style,
+                    author_name, author_kind
                 FROM v_lab_notes
                 WHERE status = 'published'
                     ${typeClause}
@@ -49,7 +50,8 @@ export function registerLabNotesRoutes(app: any, db: Database.Database) {
                     id, slug, locale, type, status,
                     title, subtitle, summary, excerpt,
                     department_id, dept, shadow_density, safer_landing, read_time_minutes,
-                    published_at, created_at, updated_at, card_style
+                    published_at, created_at, updated_at, card_style,
+                    author_name, author_kind
                 FROM v_lab_notes
                 WHERE locale = ?
                   AND status = 'published'
@@ -102,6 +104,7 @@ export function registerLabNotesRoutes(app: any, db: Database.Database) {
                     department_id, dept, shadow_density, coherence_score,
                     safer_landing, read_time_minutes,
                     published_at, created_at, updated_at, card_style,
+                    author_name, author_kind,
                     content_markdown
                 FROM v_lab_notes
                 WHERE slug = ?
