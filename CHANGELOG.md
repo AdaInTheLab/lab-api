@@ -1,3 +1,28 @@
+## Unreleased
+
+### Ops
+- Add `ecosystem.config.cjs.example` template — the real `ecosystem.config.cjs`
+  remains gitignored, but the template documents the canonical shape and the
+  locally-managed-tunnel trap.
+
+### Notes for future ops debugging
+
+If `api.thehumanpatternlab.com` ever returns Cloudflare **error 1033 / HTTP 530**
+("Argo Tunnel error / no available origin"), `pm2 logs cf-tunnel --err` will
+usually show one of two things:
+
+1. **`Provided Tunnel token is not valid.`** — the cf-tunnel `args` block in
+   `ecosystem.config.cjs` is using the `--token <jwt>` form, but the tunnel was
+   created locally (`cloudflared tunnel create`). Locally-managed tunnels
+   authenticate via the cred file at `~/.cloudflared/<uuid>.json`, not a JWT.
+   Fix: change the args to `["tunnel", "run", "<tunnel-name>"]`. See the
+   `ecosystem.config.cjs.example` header comment for the full picture.
+
+2. **PM2 process listed but with `▒▒` status / 0b memory / hundreds of restarts**
+   — half-zombie entry. Underlying cloudflared process is gone or detached but
+   PM2 still has the registry entry. Fix: `pm2 delete cf-tunnel && pm2 start
+   ecosystem.config.cjs --only cf-tunnel && pm2 save`.
+
 ## v0.2.0 — Ledger Era + Canonical API Base
 
 ### Breaking
