@@ -1,0 +1,76 @@
+/**
+ * PM2 Ecosystem — Human Pattern Lab (TEMPLATE)
+ *
+ * Copy this file to `ecosystem.config.cjs` on the production server and
+ * fill in the placeholder values. The real `ecosystem.config.cjs` is
+ * gitignored because it contains secrets — keep it that way.
+ *
+ * Topology:
+ *   - lab-api runs on localhost:8001
+ *   - cf-tunnel exposes it via a Cloudflare Tunnel managed *locally*
+ *     (cred file at ~/.cloudflared/<tunnel-uuid>.json + ~/.cloudflared/config.yml)
+ *
+ * IMPORTANT — locally-managed vs remote-managed tunnel auth:
+ *   - Locally-managed tunnels authenticate via the cred JSON file. Run
+ *     them with: `cloudflared tunnel run <tunnel-name>`
+ *   - Remote-managed tunnels (created in the Cloudflare Zero Trust
+ *     dashboard) authenticate via a JWT-shaped `--token <...>` arg.
+ *   - The two formats are MUTUALLY EXCLUSIVE. Feeding a remote-management
+ *     token to a locally-managed tunnel produces an endless loop of:
+ *       "Provided Tunnel token is not valid."
+ *     If you see that error in `pm2 logs cf-tunnel --err`, this is the
+ *     mismatch — confirm `~/.cloudflared/<uuid>.json` exists and use the
+ *     `args: ["tunnel", "run", "<tunnel-name>"]` form below.
+ */
+
+module.exports = {
+    apps: [
+        {
+            name: "lab-api",
+            cwd: "/home/<user>/lab-api",
+            script: "dist/index.js",
+            interpreter: "/home/<user>/.nvm/versions/node/v20.19.6/bin/node",
+            exec_mode: "fork",
+            time: true,
+            env: {
+                NODE_ENV: "production",
+                PORT: "8001",
+
+                // Generate with: node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"
+                SESSION_SECRET: "REPLACE_ME_WITH_A_RANDOM_SECRET",
+
+                UI_BASE_URL: "https://thehumanpatternlab.com",
+
+                // TOKEN_PEPPER and other secrets are loaded from `.env`
+                // by dotenv at app startup (see src/env.ts). Don't put
+                // them here unless you also remove them from `.env` —
+                // having them in both can produce subtle override bugs.
+            },
+            max_restarts: 10,
+            restart_delay: 2000,
+        },
+
+        {
+            name: "cf-tunnel",
+            script: "/home/<user>/bin/cloudflared",
+
+            // Locally-managed tunnel — references the tunnel by name as
+            // defined in ~/.cloudflared/config.yml. cloudflared loads
+            // ~/.cloudflared/<tunnel-uuid>.json automatically for auth.
+            args: ["tunnel", "run", "lab-api"],
+
+            // ⚠️ Do NOT use the "--token <jwt>" form here for a tunnel
+            // that was created with `cloudflared tunnel create`. See the
+            // header comment for why.
+
+            auto_restart: true,
+            restart_delay: 5000,
+            time: true,
+            max_restarts: 20,
+
+            out_file: "/home/<user>/lab-api/logs/cloudflared.out.log",
+            error_file: "/home/<user>/lab-api/logs/cloudflared.err.log",
+            merge_logs: true,
+        },
+    ],
+};
