@@ -96,12 +96,23 @@ jobs:
                 timeout 60 pm2 restart lab-api --update-env && echo "lab-api restarted"
                 sleep 3
               fi
-              # What the live process actually has (dotenv loads .env into process.env at boot)
+              # dotenv sets TOKEN_PEPPER at runtime, so /proc/<pid>/environ never shows it.
+              # Instead: confirm PM2 is not injecting its own value, and that the process
+              # started after .env was last written (so it read the current value at boot).
               pid=$(timeout 20 pm2 pid lab-api 2>/dev/null | tr -d '[:space:]')
-              live=$(tr '\0' '\n' < /proc/$pid/environ 2>/dev/null | grep '^TOKEN_PEPPER=' | cut -d= -f2- || true)
-              disk=$(grep '^TOKEN_PEPPER=' .env | head -1 | cut -d= -f2- || true)
-              echo "lab-api pid $pid; live pepper prefix: ${live:0:6}; .env prefix: ${disk:0:6}"
-              if [ -n "$live" ] && [ "$live" = "$disk" ]; then echo "  >> running process matches .env"; else echo "  >> MISMATCH or unreadable (process env may not be inspectable); restart lab-api and re-verify"; fi
+              if timeout 20 pm2 env lab-api 2>/dev/null | grep -q '^TOKEN_PEPPER='; then
+                echo "WARNING: PM2 env carries its own TOKEN_PEPPER; it overrides .env. Check ecosystem.config.cjs."
+              else
+                echo "PM2 env has no TOKEN_PEPPER (good: .env is the only source)"
+              fi
+              env_mtime=$(stat -c %Y .env)
+              proc_start=$(stat -c %Y /proc/$pid 2>/dev/null || echo 0)
+              echo "lab-api pid $pid started $(date -d @$proc_start '+%F %T'); .env written $(date -d @$env_mtime '+%F %T')"
+              if [ "$proc_start" -ge "$env_mtime" ]; then
+                echo "  >> process booted after the last .env write: running with the current pepper"
+              else
+                echo "  >> process predates the last .env write: restart lab-api to pick it up"
+              fi
               curl -s --max-time 5 http://127.0.0.1:8001/health && echo || echo "local health check failed"
             else
               echo "lab-api is NOT registered in PM2 (service down or PM2 wedged). Pepper rotated on disk; no restart performed."
