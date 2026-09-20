@@ -1,0 +1,102 @@
+name: PM2 boot persistence on Dreamhost 🔁
+
+# Manual-only. `diagnose` reports how PM2 is (or is not) brought back after a VPS
+# reboot. `install` puts a robust @reboot job in place so lab-api + cf-tunnel come
+# back on their own. Background: 2026-09-20 the API had been down ~51 days because
+# a boot-time `pm2 resurrect` hung.
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "diagnose = report only; install = write the @reboot cron job and a resurrect wrapper"
+        required: true
+        type: choice
+        options: [diagnose, install]
+        default: diagnose
+
+concurrency:
+  group: deploy-lab-api
+  cancel-in-progress: false
+
+jobs:
+  pm2-boot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Validate deploy secrets (fail fast)
+        run: |
+          test -n "${{ secrets.SFTP_HOST }}" || (echo "Missing SFTP_HOST" && exit 1)
+          test -n "${{ secrets.SFTP_USER }}" || (echo "Missing SFTP_USER" && exit 1)
+          test -n "${{ secrets.SFTP_PATH }}" || (echo "Missing SFTP_PATH" && exit 1)
+          test -n "${{ secrets.SSH_PRIVATE_KEY }}" || (echo "Missing SSH_PRIVATE_KEY" && exit 1)
+          test -n "${{ secrets.SSH_PORT }}" || (echo "Missing SSH_PORT" && exit 1)
+
+      - name: Inspect or install
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SFTP_HOST }}
+          username: ${{ secrets.SFTP_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: ${{ secrets.SSH_PORT }}
+          script_stop: false
+          script: |
+            set -e
+            export PATH="$HOME/.nvm/versions/node/v20.19.6/bin:$PATH"
+            MODE="${{ github.event.inputs.mode }}"
+            APP="${{ secrets.SFTP_PATH }}"
+            echo "Mode: $MODE  User: $(whoami)  Uptime: $(uptime -p 2>/dev/null || uptime)"
+
+            echo "== how PM2 is started at boot today =="
+            echo "-- crontab:"; crontab -l 2>/dev/null || echo "(no crontab)"
+            echo "-- systemd user units:"; ls ~/.config/systemd/user 2>/dev/null || echo "(none)"
+            echo "-- linger:"; loginctl show-user "$(whoami)" -p Linger 2>/dev/null || echo "(loginctl unavailable)"
+            echo "-- system pm2 units:"; systemctl list-units --type=service --all 2>/dev/null | grep -i pm2 || echo "(none visible)"
+            echo "-- sudo:"; sudo -n true 2>/dev/null && echo "passwordless sudo available" || echo "no sudo"
+            echo "-- pm2 startup suggestion:"; timeout 20 pm2 startup 2>&1 | tail -3 || true
+
+            echo "== current PM2 state =="
+            echo "-- pm2 processes (any user, from ps):"
+            ps -eo pid,ppid,etimes,args | grep -E "PM2|pm2" | grep -v grep || echo "(none)"
+            echo "-- pm2 list:"; timeout 30 pm2 list 2>&1 | tail -12 || echo "pm2 list timed out"
+            echo "-- dump file:"; ls -la ~/.pm2/dump.pm2 2>/dev/null || echo "(no dump.pm2; pm2 save never ran)"
+            echo "-- dump contents (names only):"; node -e 'try{const d=require(process.env.HOME+"/.pm2/dump.pm2");console.log(d.map(p=>p.name+" cwd="+p.pm_cwd).join("\n"))}catch(e){console.log("(unreadable: "+e.message+")")}' || true
+            echo "-- pm2 log tail:"; tail -n 20 ~/.pm2/pm2.log 2>/dev/null || echo "(no pm2.log)"
+
+            if [ "$MODE" != "install" ]; then echo "diagnose only; nothing changed"; exit 0; fi
+
+            echo "== install =="
+            mkdir -p ~/bin
+            cat > ~/bin/pm2-boot.sh <<'SH'
+            #!/usr/bin/env bash
+            # Bring PM2 back after a reboot. Written by the lab-api pm2-boot workflow.
+            # Runs from @reboot cron; logs to ~/.pm2/boot.log. Every step is time-boxed so a
+            # wedged daemon cannot leave the API down silently like on 2026-09-20.
+            export PATH="$HOME/.nvm/versions/node/v20.19.6/bin:$PATH"
+            LOG="$HOME/.pm2/boot.log"
+            mkdir -p "$HOME/.pm2"
+            {
+              echo "=== $(date -Is) boot"
+              sleep 20                                   # let the network settle
+              timeout 60 pm2 ping >/dev/null 2>&1 || { echo "daemon unresponsive, killing"; timeout 30 pm2 kill || true; }
+              timeout 90 pm2 resurrect || echo "resurrect failed ($?)"
+              sleep 5
+              if ! timeout 30 pm2 describe lab-api >/dev/null 2>&1; then
+                echo "lab-api not resurrected; starting from ecosystem"
+                cd "__APP__" && timeout 90 pm2 startOrReload ecosystem.config.cjs --env production --update-env || echo "ecosystem start failed ($?)"
+              fi
+              timeout 30 pm2 list
+              echo "=== done"
+            } >>"$LOG" 2>&1
+            SH
+            sed -i "s|__APP__|$APP|" ~/bin/pm2-boot.sh
+            chmod 700 ~/bin/pm2-boot.sh
+            echo "wrote ~/bin/pm2-boot.sh"
+
+            # Replace any previous pm2 @reboot line with ours, keep everything else.
+            ( crontab -l 2>/dev/null | grep -v -E "pm2 resurrect|pm2-boot.sh" ; echo "@reboot $HOME/bin/pm2-boot.sh" ) | crontab -
+            echo "-- crontab now:"; crontab -l
+
+            echo "-- refreshing dump so resurrect has the current process list"
+            timeout 30 pm2 save && echo "pm2 save ok" || echo "pm2 save failed"
+            echo "-- dry run of the boot script (no reboot):"
+            timeout 240 ~/bin/pm2-boot.sh; tail -n 15 ~/.pm2/boot.log
