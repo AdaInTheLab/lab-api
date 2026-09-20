@@ -59,12 +59,19 @@ jobs:
             ps -eo pid,ppid,etimes,args | grep -E "PM2|pm2" | grep -v grep || echo "(none)"
             echo "-- pm2 list:"; timeout 30 pm2 list 2>&1 | tail -12 || echo "pm2 list timed out"
             echo "-- dump file:"; ls -la ~/.pm2/dump.pm2 2>/dev/null || echo "(no dump.pm2; pm2 save never ran)"
-            echo "-- dump contents (names only):"; node -e 'try{const d=require(process.env.HOME+"/.pm2/dump.pm2");console.log(d.map(p=>p.name+" cwd="+p.pm_cwd).join("\n"))}catch(e){console.log("(unreadable: "+e.message+")")}' || true
+            echo "-- dump contents (names only):"; node -e 'try{const d=require(process.env.HOME+"/.pm2/dump.pm2");console.log((Array.isArray(d)?d:Object.values(d)).map(p=>p.name+" cwd="+p.pm_cwd).join("\n"))}catch(e){console.log("(unreadable: "+e.message+")")}' || true
             echo "-- pm2 log tail:"; tail -n 20 ~/.pm2/pm2.log 2>/dev/null || echo "(no pm2.log)"
 
             if [ "$MODE" != "install" ]; then echo "diagnose only; nothing changed"; exit 0; fi
 
             echo "== install =="
+            # A `pm2 resurrect` that has been running for over an hour is the 2026-09-20 hang:
+            # two @reboot jobs raced and left a second God Daemon stuck behind the first.
+            for pid in $(ps -eo pid,etimes,args | awk '/bin\/pm2 resurrect$/ && $2 > 3600 {print $1}'); do
+              echo "killing stale pm2 resurrect pid $pid (and its private daemon)"
+              pkill -P "$pid" || true
+              kill "$pid" || true
+            done
             mkdir -p ~/bin
             cat > ~/bin/pm2-boot.sh <<'SH'
             #!/usr/bin/env bash
@@ -92,8 +99,8 @@ jobs:
             chmod 700 ~/bin/pm2-boot.sh
             echo "wrote ~/bin/pm2-boot.sh"
 
-            # Replace any previous pm2 @reboot line with ours, keep everything else.
-            ( crontab -l 2>/dev/null | grep -v -E "pm2 resurrect|pm2-boot.sh" ; echo "@reboot $HOME/bin/pm2-boot.sh" ) | crontab -
+            # One @reboot job instead of two racing ones; keep every other line (backup cron, DreamHost block).
+            ( crontab -l 2>/dev/null | grep -v -E "@reboot .*pm2" ; echo "@reboot $HOME/bin/pm2-boot.sh" ) | crontab -
             echo "-- crontab now:"; crontab -l
 
             echo "-- refreshing dump so resurrect has the current process list"
