@@ -1,0 +1,92 @@
+name: Rotate TOKEN_PEPPER on Dreamhost 🔑
+
+# Manual-only. Rotates TOKEN_PEPPER in the server-side .env (and .env.production
+# if present), backs the old file up next to it, and restarts lab-api if PM2 has
+# it registered. Rotating invalidates every issued hpl_live_* token.
+on:
+  workflow_dispatch:
+    inputs:
+      leaked_prefix:
+        description: "First 6 chars of a known-leaked pepper (only used to report whether the live value matched)"
+        required: false
+        default: ""
+
+concurrency:
+  group: deploy-lab-api
+  cancel-in-progress: false
+
+jobs:
+  rotate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Validate deploy secrets (fail fast)
+        run: |
+          test -n "${{ secrets.SFTP_HOST }}" || (echo "Missing SFTP_HOST" && exit 1)
+          test -n "${{ secrets.SFTP_USER }}" || (echo "Missing SFTP_USER" && exit 1)
+          test -n "${{ secrets.SFTP_PATH }}" || (echo "Missing SFTP_PATH" && exit 1)
+          test -n "${{ secrets.SSH_PRIVATE_KEY }}" || (echo "Missing SSH_PRIVATE_KEY" && exit 1)
+          test -n "${{ secrets.SSH_PORT }}" || (echo "Missing SSH_PORT" && exit 1)
+
+      - name: Rotate pepper on server
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SFTP_HOST }}
+          username: ${{ secrets.SFTP_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: ${{ secrets.SSH_PORT }}
+          script_stop: true
+          script: |
+            set -e
+            export PATH="$HOME/.nvm/versions/node/v20.19.6/bin:$PATH"
+            cd "${{ secrets.SFTP_PATH }}"
+            echo "User: $(whoami)  Dir: $(pwd)"
+
+            LEAKED="${{ github.event.inputs.leaked_prefix }}"
+            # base64url, 43 chars, no sed-special characters
+            NEW=$(openssl rand -base64 32 | tr '+/' '-_' | tr -d '=\n')
+            TS=$(date +%Y%m%d-%H%M%S)
+            found=0
+
+            for f in .env .env.production; do
+              [ -f "$f" ] || { echo "$f: absent"; continue; }
+              if grep -q '^TOKEN_PEPPER=' "$f"; then
+                cur=$(grep '^TOKEN_PEPPER=' "$f" | head -1 | cut -d= -f2-)
+                echo "$f: TOKEN_PEPPER present (len ${#cur}, prefix ${cur:0:6})"
+                if [ -n "$LEAKED" ] && [ "${cur:0:6}" = "$LEAKED" ]; then
+                  echo "  >> live value MATCHED the leaked prefix"
+                else
+                  echo "  >> live value did NOT match the leaked prefix"
+                fi
+                cp -p "$f" "$f.bak.$TS" && chmod 600 "$f.bak.$TS"
+                sed -i "s|^TOKEN_PEPPER=.*|TOKEN_PEPPER=$NEW|" "$f"
+                chmod 600 "$f"
+                echo "  rotated -> new prefix ${NEW:0:6}, backup $f.bak.$TS"
+                found=1
+              else
+                echo "$f: no TOKEN_PEPPER line"
+              fi
+            done
+
+            if [ "$found" = 0 ]; then
+              echo "No TOKEN_PEPPER in .env/.env.production; appending to .env"
+              touch .env && chmod 600 .env
+              cp -p .env ".env.bak.$TS"
+              printf '\nTOKEN_PEPPER=%s\n' "$NEW" >> .env
+            fi
+
+            if [ -f ecosystem.config.cjs ] && grep -q 'TOKEN_PEPPER' ecosystem.config.cjs; then
+              echo "WARNING: ecosystem.config.cjs also sets TOKEN_PEPPER; PM2 env would override .env. Not edited automatically:"
+              grep -n 'TOKEN_PEPPER' ecosystem.config.cjs | sed -E 's/(TOKEN_PEPPER[^A-Za-z0-9]*.{6}).*/\1.../'
+            fi
+
+            echo "== PM2 =="
+            if timeout 30 pm2 describe lab-api >/dev/null 2>&1; then
+              timeout 60 pm2 restart lab-api --update-env && echo "lab-api restarted"
+              sleep 3
+              echo "PM2 env TOKEN_PEPPER prefix: $(timeout 20 pm2 env lab-api 2>/dev/null | grep '^TOKEN_PEPPER=' | cut -d= -f2- | cut -c1-6 || echo '(not in pm2 env, loaded from .env)')"
+              curl -s --max-time 5 http://127.0.0.1:8001/health && echo || echo "local health check failed"
+            else
+              echo "lab-api is NOT registered in PM2 (service down or PM2 wedged). Pepper rotated on disk; no restart performed."
+              timeout 30 pm2 list || echo "pm2 list timed out"
+            fi
